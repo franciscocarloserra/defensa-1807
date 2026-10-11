@@ -61,7 +61,6 @@ Solo los Milicianos suben a las azoteas (defensa +40%).`;
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const $ = id => document.getElementById(id);
-const cv = $('map'), ctx = cv.getContext('2d');
 const key = (x, y) => y * COLS + x;
 
 const grid = [];
@@ -74,7 +73,7 @@ for (let y = 0; y < ROWS; y++) {
 for (const [t, , x0, y0, x1, y1] of LANDMARKS)
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) grid[y][x] = t;
 
-let units, turn, fi, sel, reach, over, tile = 20;
+let units, turn, fi, sel, reach, over;
 
 const unitAt = (x, y) => units.find(u => u.x === x && u.y === y);
 const enemy = (a, b) => (a.f === 'ing') !== (b.f === 'ing');
@@ -191,71 +190,9 @@ function onTap(x, y) {
   draw();
 }
 
-function resize() {
-  const w = $('wrap').clientWidth - 8, h = $('wrap').clientHeight - 8;
-  tile = Math.max(8, Math.floor(Math.min(w / COLS, h / ROWS)));
-  const dpr = devicePixelRatio || 1;
-  cv.width = COLS * tile * dpr; cv.height = ROWS * tile * dpr;
-  cv.style.width = COLS * tile + 'px'; cv.style.height = ROWS * tile + 'px';
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  draw();
-}
+// Rendering lives in render3d.js (ES module); it sets window.render3d and handles taps.
+function draw() { if (window.render3d) window.render3d(); }
 
-function text(s, x, y, size, color, rot = 0) {
-  ctx.save();
-  ctx.translate(x, y); ctx.rotate(rot);
-  ctx.font = `${size}px system-ui,sans-serif`;
-  ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(s, 0, 0);
-  ctx.restore();
-}
-
-function draw() {
-  if (!units) return;
-  const T = tile;
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    ctx.fillStyle = TERRAIN[grid[y][x]].color;
-    ctx.fillRect(x * T, y * T, T, T);
-    ctx.strokeStyle = '#0003';
-    ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1);
-  }
-  const small = Math.max(7, T * 0.38);
-  for (const [x, n] of Object.entries(STREETS_X)) text(n, (+x + 0.5) * T, 19.5 * T, small, '#fff6', -Math.PI / 2);
-  for (const [y, n] of Object.entries(STREETS_Y)) text(n, 1.5 * T, (+y + 0.5) * T, small, '#fff6');
-  for (const [, label, x0, y0, x1, y1] of LANDMARKS)
-    if (label) text(label, (x0 + x1 + 1) / 2 * T, (y0 + y1 + 1) / 2 * T, Math.max(7, T * 0.42), '#000b', x1 - x0 < y1 - y0 ? -Math.PI / 2 : 0);
-  text('Río de la Plata', 16 * T, 14 * T, small, '#fff5', -Math.PI / 2);
-
-  if (reach) for (const k of reach) {
-    ctx.fillStyle = '#4fa0ff59';
-    ctx.fillRect((k % COLS) * T, Math.floor(k / COLS) * T, T, T);
-  }
-  if (sel && !sel.acted) for (const o of targets(sel)) {
-    ctx.fillStyle = '#ff3c3c73';
-    ctx.fillRect(o.x * T, o.y * T, T, T);
-  }
-
-  const mine = ORDER[fi];
-  for (const u of units) {
-    const cx = (u.x + 0.5) * T, cy = (u.y + 0.5) * T, ty = TYPES[u.t];
-    ctx.globalAlpha = u.f === mine && u.acted ? 0.45 : 1;
-    ctx.beginPath(); ctx.arc(cx, cy, T * 0.4, 0, Math.PI * 2);
-    ctx.fillStyle = FACTIONS[u.f].color; ctx.fill();
-    ctx.lineWidth = u === sel ? 2.5 : 1; ctx.strokeStyle = u === sel ? '#fff' : '#000a'; ctx.stroke();
-    text(ty.ch, cx, cy, T * 0.5, '#fff');
-    ctx.fillStyle = '#000'; ctx.fillRect(u.x * T + 2, (u.y + 1) * T - 4, T - 4, 3);
-    ctx.fillStyle = '#7f7'; ctx.fillRect(u.x * T + 2, (u.y + 1) * T - 4, (T - 4) * u.hp / ty.hp, 3);
-    ctx.globalAlpha = 1;
-  }
-}
-
-cv.addEventListener('pointerup', e => {
-  const r = cv.getBoundingClientRect();
-  const x = Math.floor((e.clientX - r.left) / tile), y = Math.floor((e.clientY - r.top) / tile);
-  if (x >= 0 && y >= 0 && x < COLS && y < ROWS) onTap(x, y);
-});
 $('end').onclick = endTurn;
 $('help').onclick = () => overlay(HELP, 'Cerrar');
-addEventListener('resize', resize);
 newGame();
-resize();

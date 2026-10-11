@@ -1,8 +1,11 @@
 # Defensa 1807 — notes for agents
 
-Turn-based strategy PoC, mobile-first, static site (GitHub Pages from `main` root). Vanilla JS, no build step, no images yet.
+Turn-based strategy PoC, mobile-first, static site (GitHub Pages from `main` root). Vanilla JS, no build step, no images yet. Three layers, kept separate so each can change alone:
 
-- `game.js` — everything: map, units, rules, canvas render. Tunables at the top.
+- `rules.js` — data only: map grid, landmarks, factions, unit stats, setup, alliances, turn limit.
+- `engine.js` — state, movement, combat, turns, win checks and the HTML HUD. Calls `draw()`, which forwards to the renderer.
+- `render3d.js` — Three.js scene (ES module, vendored in `vendor/`). Reads engine globals, sets `window.render3d`, turns taps into `onTap(x, y)`. Placeholder geometry until Meshy assets exist.
+- `INTENT.md` — design intent from the team, appended as it arrives. Check it before changing behavior.
 - `telemetry.js` — dev-only; on localhost/LAN posts console errors, exceptions and long tasks to `serve.py`. Disabled on github.io.
 - `serve.py` — static + `POST /log` → `/tmp/defensa1807-console.jsonl`. Read that log instead of asking the user.
 - `data/` — reference maps and docs supplied by the team (none yet).
