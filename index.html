@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Defensa 1807</title>
+<style>
+html,body{margin:0;height:100%;background:#111;color:#ddd;font:14px system-ui,sans-serif;overscroll-behavior:none}
+body{display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#1a1a1a}
+header h1{font-size:15px;margin:0;flex:1}
+button{background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:6px;padding:8px 12px;font:inherit}
+#wrap{flex:1;display:flex;justify-content:center;align-items:center;min-height:0;padding:4px}
+canvas{touch-action:none;display:block}
+#bar{padding:8px 10px;background:#1a1a1a;min-height:2.8em;font-size:13px;line-height:1.4}
+#overlay{position:fixed;inset:0;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;line-height:1.5}
+#overlay.hidden{display:none}
+</style>
+</head>
+<body>
+<header><h1 id="turn"></h1><button id="help">?</button><button id="end">Fin turno</button></header>
+<div id="wrap"><canvas id="map"></canvas></div>
+<div id="bar"></div>
+<div id="overlay" class="hidden"><div id="ovtext"></div><button id="ovbtn">Continuar</button></div>
+<script src="telemetry.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
