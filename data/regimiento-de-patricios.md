@@ -1,0 +1,5 @@
+# Regimiento de Patricios
+
+Fuente: texto provisto por el equipo (página oficial; URL no indicada). Transcripto sin cambios, salvo el texto de interfaz "Compartir en redes" de la página.
+
+El 15 de septiembre de 1806 se forma el regimiento en respuesta a una proclama que realiza el virrey Liniers, en la que se convocaba a todos los vecinos y habitantes de la ciudad a tomar instrucción militar ante la posibilidad de un segundo ataque enemigo. Entre sus integrantes estaban Cornelio Saavedra (jefe del primer batallón, Esteban Romero y José Domingo Urién –jefes del segundo y tercer batallón–, Manuel Belgrano, Juan José Viamonte, Feliciano Chiclana, Gregorio Perdriel, entre otros. Todos sus integrantes eran criollos y la Junta Central de Sevilla en reconocimiento a sus méritos en combate les reconoció los grados militares otorgados por Liniers. El bautismo de fuego se produjo durante la segunda invasión. Tras su participación en la asonada del 1º de enero de 1809, fue disuelto el tercer batallón.

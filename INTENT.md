@@ -11,3 +11,4 @@ Design intent from the team, in the order it was given. Newest last.
 - 3D from the start, basic but eye-catching. Render the street layout and placeholder assets now.
 - Keep rules, game engine and graphics engine separate so each can change without touching the others.
 - Meshy GLBs replace placeholders per unit type as they arrive, compressed to stay light on mobile (first: granadero).
+- Project brief (from the team's Claude project "Buenos Aires"): a game set in Buenos Aires' historic center, a tour through the central streets across 1806–1810 — British invasions and the May Revolution — featuring the period's architecture and notable historical figures.
