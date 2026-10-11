@@ -1,6 +1,7 @@
 // 3D renderer (Three.js). Reads game state globals from game.js and calls onTap(x, y). Placeholder geometry only.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const HEIGHT = { calle: 0, plaza: 0.03, recova: 0.03, manzana: 0.45, fuerte: 0.15, cabildo: 0.8, iglesia: 0.9, barranca: -0.25, rio: -0.5 };
 const ROOF_VARIATION = 0.3;
@@ -15,6 +16,9 @@ const UNIT_LOOK = {
   granadero: { coat: '#1d3f8a', hat: 'bearskin', hatColor: '#1a1a1a' },
   miliciano: { coat: '#c9b98f', hat: 'brim',     hatColor: '#5a3b1e' },
 };
+// Meshy models replacing the placeholder figure, per unit type. Height in tiles.
+const MODELS = { granadero: 'assets/granadero.glb' };
+const MODEL_HEIGHT = 0.8;
 const CAMERA_FOV = 45;
 const TAP_PX = 10, TAP_MS = 500;
 const MOVE_MS = 260, DEATH_MS = 400, HOP = 0.35;
@@ -168,7 +172,20 @@ const UG = {
   crown: new THREE.CylinderGeometry(0.08, 0.09, 0.09, 10),
   musket: new THREE.BoxGeometry(0.03, 0.56, 0.03),
 };
-const groups = new Map(), dying = [];
+const groups = new Map(), dying = [], models = {};
+
+// Swap placeholders for the model once it loads; keep placeholders if it fails.
+for (const [t, url] of Object.entries(MODELS)) new GLTFLoader().load(url, gltf => {
+  const m = gltf.scene, box = new THREE.Box3().setFromObject(m), s = MODEL_HEIGHT / (box.max.y - box.min.y);
+  m.scale.setScalar(s);
+  m.position.y = 0.05 - box.min.y * s;
+  models[t] = m;
+  for (const [u, g] of groups) if (u.t === t) {
+    const n = makeUnit(u);
+    n.position.copy(g.position); n.rotation.copy(g.rotation); n.userData.anim = g.userData.anim;
+    scene.remove(g); groups.set(u, n);
+  }
+}, undefined, e => console.error('model ' + url, e));
 
 function makeUnit(u) {
   const look = UNIT_LOOK[u.t], g = new THREE.Group(), mats = [];
@@ -181,11 +198,17 @@ function makeUnit(u) {
     return mesh;
   };
   part(UG.base, FACTIONS[u.f].color, 0, 0.025, 0);
-  part(UG.body, look.coat, 0, 0.24, 0);
-  part(UG.head, '#e0b48c', 0, 0.52, 0);
-  if (look.hat === 'brim') { part(UG.brim, look.hatColor, 0, 0.6, 0); part(UG.crown, look.hatColor, 0, 0.65, 0); }
-  else part(UG[look.hat], look.hatColor, 0, look.hat === 'shako' ? 0.66 : 0.72, 0);
-  part(UG.musket, '#4a3320', 0.19, 0.33, 0).rotation.z = -0.15;
+  if (models[u.t]) {
+    const m = models[u.t].clone();
+    m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.material = o.material.clone(); o.material.transparent = true; mats.push(o.material); } });
+    g.add(m);
+  } else {
+    part(UG.body, look.coat, 0, 0.24, 0);
+    part(UG.head, '#e0b48c', 0, 0.52, 0);
+    if (look.hat === 'brim') { part(UG.brim, look.hatColor, 0, 0.6, 0); part(UG.crown, look.hatColor, 0, 0.65, 0); }
+    else part(UG[look.hat], look.hatColor, 0, look.hat === 'shako' ? 0.66 : 0.72, 0);
+    part(UG.musket, '#4a3320', 0.19, 0.33, 0).rotation.z = -0.15;
+  }
   const hpBg = new THREE.Sprite(new THREE.SpriteMaterial({ color: '#000' }));
   const hp = new THREE.Sprite(new THREE.SpriteMaterial({ color: '#7f7' }));
   for (const s of [hpBg, hp]) { s.center.set(0, 0.5); s.scale.set(0.5, 0.06, 1); s.position.set(-0.25, 0.98, 0); g.add(s); }

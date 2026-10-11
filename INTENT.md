@@ -10,3 +10,4 @@ Design intent from the team, in the order it was given. Newest last.
 - Assets will be generated with the Meshy API, inspired by historical illustrations; reference images and API docs to come. No images until then.
 - 3D from the start, basic but eye-catching. Render the street layout and placeholder assets now.
 - Keep rules, game engine and graphics engine separate so each can change without touching the others.
+- Meshy GLBs replace placeholders per unit type as they arrive, compressed to stay light on mobile (first: granadero).
