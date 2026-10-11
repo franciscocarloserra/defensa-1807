@@ -16,7 +16,7 @@ Rules for this project:
 - Assets will be generated with the Meshy API (`~/projects/know-how/meshy-assets`); compress every GLB before adding it.
 - Publishing beyond the PoC waits for the team to approve the core concepts.
 
-Map: schematic grid, 1 street tile + 2x2 block tiles. Street labels use modern names for orientation only. Landmark positions (Cabildo, Catedral, Fuerte, Recova, San Francisco, Santo Domingo) are approximate and must be checked against period maps. The 1807 street layout and riverbank differ from today's.
+Map: schematic grid, 1 street tile + 2x2 block tiles. Street labels use only period names from `data/calles-1806-1810.md` (pre-1808, or 1808 in the 1809 episode); streets without a known period name stay unlabeled. No modern names. Landmark positions (Cabildo, Catedral, Fuerte, Recova, San Francisco, Santo Domingo) are approximate and must be checked against period maps. The 1807 street layout and riverbank differ from today's.
 
 Historical points to validate with the supplied sources:
 - "Granaderos": the Regimiento de Granaderos a Caballo (San Martín) dates from 1812, so it is anachronistic here. A period option is the Granaderos de Liniers (infantry raised 1806–07).

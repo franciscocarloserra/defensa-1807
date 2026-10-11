@@ -3,21 +3,28 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const HEIGHT = { calle: 0, plaza: 0.03, recova: 0.03, manzana: 0.45, fuerte: 0.15, cabildo: 0.8, iglesia: 0.9, barranca: -0.25, rio: -0.5 };
+const HEIGHT = { calle: 0, plaza: 0.03, recova: 0.03, manzana: 0.5, fuerte: 0.15, cabildo: 0.8, iglesia: 0.9, barranca: -0.25, rio: -0.5 };
 const ROOF_VARIATION = 0.3;
 const PALETTE = {
   calle: '#6b5a45', plaza: '#8f7f5c', recova: '#8f7f5c', fuerte: '#7f6a4c', cabildo: '#efe6cf',
-  iglesia: '#d9cfb8', barranca: '#56703f', rio: '#2a5576',
+  iglesia: '#d9cfb8', barranca: '#6f7a45', rio: '#7d6f55', // the river is brown, as in period engravings
 };
+const SKY = '#c7cdc9';
 const WHITEWASH = ['#ece3cc', '#e2d5b8', '#d8c8a6', '#efe9da'];
+// Colors from the uniform plates in data/ (Patricios, Pardos, Morenos, Naturales, Marineros, British line and rifles).
 const UNIT_LOOK = {
-  linea:     { coat: '#b8261c', hat: 'shako',    hatColor: '#151515' },
-  rifle:     { coat: '#1f3d24', hat: 'shako',    hatColor: '#151515' },
-  granadero: { coat: '#1d3f8a', hat: 'bearskin', hatColor: '#1a1a1a' },
-  miliciano: { coat: '#c9b98f', hat: 'brim',     hatColor: '#5a3b1e' },
+  linea:     { coat: '#b8261c', legs: '#e8e4d8', hat: 'shako',   hatColor: '#151515', belts: true },
+  rifle:     { coat: '#1f3d24', legs: '#1f3d24', hat: 'shako',   hatColor: '#151515' },
+  soldado:   { coat: '#1e2d5a', legs: '#e8e4d8', hat: 'tophat',  hatColor: '#151515', plume: '#c8372d' },
+  patricio:  { coat: '#1d2f5e', legs: '#e8e4d8', hat: 'tophat',  hatColor: '#151515', belts: true, plume: '#e8e4d8' },
+  miliciano: { coat: ['#1d3f8a', '#b8261c', '#2a3f70'], legs: '#d8c9a3', hat: 'tophat', hatColor: '#1a1a1a', plume: '#c8372d' },
+  minon:     { coat: '#2f5a33', legs: '#d8c9a3', hat: 'brim',    hatColor: '#1e2a1a' },
+  jefe:      { coat: null,      legs: '#e8e4d8', hat: 'bicorne', hatColor: '#151515' }, // coat = faction color
 };
+const NAME_SCALE = 0.26;
 // Meshy models replacing the placeholder figure, per unit type. Height in tiles.
-const MODELS = { granadero: 'assets/granadero.glb' };
+// The granadero model stands in for Patricios until their own model exists.
+const MODELS = { patricio: 'assets/granadero.glb' };
 const MODEL_HEIGHT = 0.8;
 const CAMERA_FOV = 45;
 const TAP_PX = 10, TAP_MS = 500;
@@ -33,11 +40,11 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#15171d');
-scene.fog = new THREE.Fog('#15171d', 35, 75);
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(SKY, 30, 70);
 const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 200);
 
-scene.add(new THREE.HemisphereLight('#ffe9cc', '#3a2a1a', 1.1));
+scene.add(new THREE.HemisphereLight('#f4ecdc', '#5a4a36', 1.3));
 const sun = new THREE.DirectionalLight('#ffd49a', 2.4);
 sun.position.set(-9, 16, 7);
 sun.castShadow = true;
@@ -53,9 +60,37 @@ const hash = (x, y) => ((Math.sin(x * 127.1 + y * 311.7) * 43758.5453) % 1 + 1) 
 const top = grid.map((row, y) => row.map((t, x) => HEIGHT[t] + (t === 'manzana' ? hash(x, y) * ROOF_VARIATION : 0)));
 const box = new THREE.BoxGeometry(1, 1, 1);
 const std = (color, extra) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, ...extra });
-const mats = Object.fromEntries(Object.entries(PALETTE).map(([k, c]) => [k, std(c)]));
-mats.rio = std(PALETTE.rio, { roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.9 });
-const washMats = WHITEWASH.map(c => std(c));
+// Procedural canvas textures: noisy ground, brick azoteas, whitewashed facades with a barred window.
+function canvasTex(w, h, paint) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  paint(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const noise = (g, w, h, n, a) => { for (let i = 0; i < n; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,255'},${Math.random() * a})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); } };
+const groundTex = canvasTex(64, 64, (g, w, h) => { g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); noise(g, w, h, 900, 0.25); });
+const roofTex = canvasTex(64, 64, (g, w, h) => {
+  g.fillStyle = '#b07a52'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#8a5a3a'; g.lineWidth = 1;
+  for (let y = 0; y < h; y += 8) for (let x = (y / 8) % 2 * 8; x < w; x += 16) g.strokeRect(x, y, 16, 8);
+  noise(g, w, h, 400, 0.2);
+  g.strokeStyle = '#e8e0cc'; g.lineWidth = 6; g.strokeRect(0, 0, w, h); // pretil (parapet)
+});
+// Box side UVs span the whole height h+1 (1 below ground); the window sits in the visible top ~35%.
+const facadeTex = canvasTex(64, 128, (g, w, h) => {
+  g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+  noise(g, w, h, 300, 0.12);
+  g.fillStyle = '#2b2620'; g.fillRect(22, 14, 20, 22);
+  g.fillStyle = '#3d5a3a'; g.fillRect(16, 14, 6, 22); g.fillRect(42, 14, 6, 22); // shutters
+  g.strokeStyle = '#111'; for (let x = 26; x < 42; x += 5) { g.beginPath(); g.moveTo(x, 14); g.lineTo(x, 36); g.stroke(); }
+  g.fillStyle = 'rgba(90,70,50,.35)'; g.fillRect(0, 40, w, 4);
+});
+const mats = Object.fromEntries(Object.entries(PALETTE).map(([k, c]) => [k, std(c, { map: groundTex })]));
+mats.rio = std(PALETTE.rio, { roughness: 0.35, metalness: 0.05, transparent: true, opacity: 0.92 });
+for (const k of ['cabildo', 'iglesia']) mats[k] = std(PALETTE[k], { map: facadeTex });
+const roofMat = std('#fff', { map: roofTex });
+const washMats = WHITEWASH.map(c => { const side = std(c, { map: facadeTex }); return [side, side, roofMat, side, side, side]; });
 const pickables = [];
 
 function solid(w, h, d, x, y, z, mat) {
@@ -88,17 +123,44 @@ const center = ([, , x0, y0, x1, y1]) => [(wx(x0) + wx(x1)) / 2, (wz(y0) + wz(y1
   for (let i = 0; i <= len * 2; i++) for (const s of [-0.35, 0.35])
     solid(0.07, 0.6, 0.07, wx(x0) + s, 0.3, wz(y0) - 0.5 + i / 2, std('#d8c8a6'));
 }
-// Fuerte: low walls and corner bastions around the patio.
+// Fuerte: four-pointed star wall as drawn on the 1807 plan (data/), with the Spanish flag.
 {
   const [, , x0, y0, x1, y1] = rect('Fuerte'), [cx, cz] = center(rect('Fuerte'));
-  const w = x1 - x0 + 1, d = y1 - y0 + 1, wall = std('#8d7556'), H = 0.7;
-  solid(w, H, 0.14, cx, H / 2, wz(y0) - 0.5, wall);
-  solid(w, H, 0.14, cx, H / 2, wz(y1) + 0.5, wall);
-  solid(0.14, H, d, wx(x0) - 0.5, H / 2, cz, wall);
-  solid(0.14, H, d, wx(x1) + 0.5, H / 2, cz, wall);
-  for (const bx of [wx(x0) - 0.5, wx(x1) + 0.5]) for (const bz of [wz(y0) - 0.5, wz(y1) + 0.5])
-    solid(0.5, H + 0.1, 0.5, bx, (H + 0.1) / 2, bz, wall).rotation.y = Math.PI / 4;
+  const rx = (x1 - x0 + 1) / 2 + 0.35, rz = (y1 - y0 + 1) / 2 + 0.35, H = 0.55;
+  const star = (sx, sz) => {
+    const sh = new THREE.Shape();
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4 + Math.PI / 4, r = i % 2 ? 0.8 : 1.25; // points on the diagonals
+      sh[i ? 'lineTo' : 'moveTo'](Math.cos(a) * r * sx, Math.sin(a) * r * sz);
+    }
+    return sh;
+  };
+  const outer = star(rx, rz);
+  outer.holes.push(star(rx * 0.8, rz * 0.8));
+  const wall = new THREE.Mesh(new THREE.ExtrudeGeometry(outer, { depth: H, bevelEnabled: false }).rotateX(-Math.PI / 2), std('#a08866', { map: groundTex }));
+  wall.position.set(cx, 0, cz);
+  wall.castShadow = wall.receiveShadow = true;
+  scene.add(wall);
+  solid(0.12, 2.2, 0.12, cx, 1.1, cz, std('#4a3320'));
+  const flag = canvasTex(48, 32, (g, w, h) => { g.fillStyle = '#b8261c'; g.fillRect(0, 0, w, h); g.fillStyle = '#e3b53a'; g.fillRect(0, h / 4, w, h / 2); });
+  const f = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 0.5), new THREE.MeshStandardMaterial({ map: flag, side: THREE.DoubleSide }));
+  f.position.set(cx + 0.42, 1.95, cz);
+  scene.add(f);
 }
+// Ships at anchor in the river, as in the engravings.
+for (const [sx, sz, r] of [[17.6, -8, 0.3], [18.8, -2, -0.2], [17.4, 4, 0.1], [19.2, 9, 0.4]]) {
+  const ship = new THREE.Group(), wood = std('#4a3320'), sail = std('#efe9da', { side: THREE.DoubleSide });
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 2.4), wood); hull.position.y = 0.05; ship.add(hull);
+  for (const [z, h] of [[-0.7, 2], [0.1, 2.5], [0.8, 1.8]]) {
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, h, 6), wood); mast.position.set(0, h / 2, z); ship.add(mast);
+    for (const k of [0.45, 0.75]) { const s = new THREE.Mesh(new THREE.PlaneGeometry(0.9 * k + 0.2, h * 0.28), sail); s.position.set(0, h * k, z + 0.05); s.rotation.y = Math.PI / 2; ship.add(s); }
+  }
+  ship.traverse(o => { o.castShadow = true; });
+  ship.position.set(sx - COLS / 2, HEIGHT.rio, sz); ship.rotation.y = r;
+  scene.add(ship);
+}
+// Wider river beyond the board, out to the horizon.
+solid(40, 0.1, 80, wx(15) + 20.5, HEIGHT.rio - 0.06, 0, mats.rio).castShadow = false;
 // Cabildo tower on the plaza side; church towers and the cathedral dome.
 function tower(x, z, base, h, mat) {
   solid(0.4, h, 0.4, x, base + h / 2, z, mat);
@@ -142,9 +204,22 @@ function groundText(s, x, z, rot, h = 0.3) {
   m.rotation.set(-Math.PI / 2, 0, rot);
   m.position.set(x, 0.02, z);
   scene.add(m);
+  return m;
 }
-for (const [x, n] of Object.entries(STREETS_X)) groundText(n, wx(+x), wz(19.5), Math.PI / 2);
-for (const [y, n] of Object.entries(STREETS_Y)) groundText(n, wx(1.5), wz(+y), 0);
+// Street names depend on the episode (pre-1808 by default, 1808 names where the scenario says so).
+const streetLabels = new THREE.Group();
+scene.add(streetLabels);
+const STREETS_DEFAULT = { x: STREETS_X, y: STREETS_Y };
+let streetsShown;
+function showStreets(st = STREETS_DEFAULT) {
+  if (st === streetsShown) return;
+  streetsShown = st;
+  streetLabels.children.forEach(m => { m.geometry.dispose(); m.material.map.dispose(); m.material.dispose(); });
+  streetLabels.clear();
+  for (const [x, n] of Object.entries(st.x)) streetLabels.add(groundText(n, wx(+x), wz(19.5), Math.PI / 2));
+  for (const [y, n] of Object.entries(st.y)) streetLabels.add(groundText(n, wx(1.5), wz(+y), 0));
+}
+showStreets();
 for (const l of LANDMARKS) if (l[1]) {
   const [map, a] = textTexture(l[1], '#f3ead6', '#000000a0'), [cx, cz] = center(l);
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthWrite: false }));
@@ -170,6 +245,11 @@ const UG = {
   bearskin: new THREE.CylinderGeometry(0.11, 0.12, 0.28, 10),
   brim: new THREE.CylinderGeometry(0.19, 0.19, 0.02, 16),
   crown: new THREE.CylinderGeometry(0.08, 0.09, 0.09, 10),
+  bicorne: new THREE.BoxGeometry(0.34, 0.1, 0.1),
+  tophat: new THREE.CylinderGeometry(0.1, 0.09, 0.2, 10),
+  plume: new THREE.CylinderGeometry(0.02, 0.03, 0.14, 6),
+  legs: new THREE.CylinderGeometry(0.15, 0.12, 0.14, 12),
+  belt: new THREE.BoxGeometry(0.04, 0.4, 0.02),
   musket: new THREE.BoxGeometry(0.03, 0.56, 0.03),
 };
 const groups = new Map(), dying = [], models = {};
@@ -203,15 +283,27 @@ function makeUnit(u) {
     m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.material = o.material.clone(); o.material.transparent = true; mats.push(o.material); } });
     g.add(m);
   } else {
-    part(UG.body, look.coat, 0, 0.24, 0);
+    const coat = Array.isArray(look.coat) ? look.coat[groups.size % look.coat.length] : look.coat || FACTIONS[u.f].color;
+    part(UG.legs, look.legs, 0, 0.12, 0);
+    part(UG.body, coat, 0, 0.3, 0).scale.y = 0.75;
+    if (look.belts) for (const r of [0.6, -0.6]) part(UG.belt, '#f2efe6', 0, 0.3, 0.13).rotation.z = r;
+    if (look.plume) part(UG.plume, look.plume, 0.07, 0.8, 0);
     part(UG.head, '#e0b48c', 0, 0.52, 0);
     if (look.hat === 'brim') { part(UG.brim, look.hatColor, 0, 0.6, 0); part(UG.crown, look.hatColor, 0, 0.65, 0); }
-    else part(UG[look.hat], look.hatColor, 0, look.hat === 'shako' ? 0.66 : 0.72, 0);
+    else part(UG[look.hat], look.hatColor, 0, { shako: 0.66, bicorne: 0.64, tophat: 0.7 }[look.hat] || 0.72, 0);
     part(UG.musket, '#4a3320', 0.19, 0.33, 0).rotation.z = -0.15;
   }
   const hpBg = new THREE.Sprite(new THREE.SpriteMaterial({ color: '#000' }));
   const hp = new THREE.Sprite(new THREE.SpriteMaterial({ color: '#7f7' }));
   for (const s of [hpBg, hp]) { s.center.set(0, 0.5); s.scale.set(0.5, 0.06, 1); s.position.set(-0.25, 0.98, 0); g.add(s); }
+  if (u.p) {
+    const [map, a] = textTexture(PEOPLE[u.p].short, '#fff', '#000000b0');
+    const name = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthWrite: false, transparent: true }));
+    name.scale.set(NAME_SCALE * a, NAME_SCALE, 1);
+    name.position.y = 1.18;
+    name.renderOrder = 11;
+    g.add(name); mats.push(name.material);
+  }
   g.userData = { unit: u, mats, hp };
   g.traverse(o => { o.userData.unit = u; });
   scene.add(g);
@@ -237,6 +329,7 @@ function mark(x, y, mat) {
 
 // Called by game.js draw() after every state change.
 function sync() {
+  showStreets(SC && SC.streets);
   const now = performance.now(), alive = new Set(units);
   for (const [u, g] of groups) if (!alive.has(u)) { groups.delete(u); dying.push({ g, t0: now }); }
   for (const u of units) {
