@@ -9,7 +9,7 @@ Turn-based strategy PoC, mobile-first, static site (GitHub Pages from `main` roo
 - `INTENT.md` — design intent from the team, appended as it arrives. Check it before changing behavior.
 - `telemetry.js` — dev-only; on localhost/LAN posts console errors, exceptions and long tasks to `serve.py`. Disabled on github.io.
 - `serve.py` — static + `POST /log` → `/tmp/defensa1807-console.jsonl`. Read that log instead of asking the user.
-- `data/` — reference maps and docs supplied by the team (none yet).
+- `data/` — reference maps and docs supplied by the team, verbatim. One topic per file (`ls data/`): invasions 1806–07, consequences to 1810, Regimiento de Patricios, Liniers, Reconquista ode (fragment).
 
 Rules for this project:
 - No web search. Historical sources come only from documents the team provides in `data/`.
