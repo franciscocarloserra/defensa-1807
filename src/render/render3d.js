@@ -1,4 +1,4 @@
-// 3D renderer (Three.js). Reads game state globals from game.js and calls onTap(x, y). Placeholder geometry only.
+// 3D renderer (Three.js). Reads game state globals from src/engine/engine.js and calls onTap(x, y). GLBs from assets/ per MODELS, placeholder geometry otherwise.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -23,7 +23,8 @@ const UNIT_LOOK = {
 };
 const NAME_SCALE = 0.26;
 // Meshy models replacing the placeholder figure, per unit type. Height in tiles.
-// The granadero model stands in for Patricios until their own model exists.
+// granadero.glb is anachronistic (Granaderos a Caballo date from 1812); it stands in for Patricios
+// until their own model exists, then gets replaced.
 const MODELS = { patricio: 'assets/granadero.glb' };
 const MODEL_HEIGHT = 0.8;
 const CAMERA_FOV = 45;
@@ -36,7 +37,7 @@ const cv = document.getElementById('map'), wrap = document.getElementById('wrap'
 const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const scene = new THREE.Scene();

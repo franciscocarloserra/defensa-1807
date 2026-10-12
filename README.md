@@ -6,7 +6,7 @@ Jugar: https://franciscocarloserra.github.io/defensa-1807/
 
 Local (con log de errores del front en `/tmp/defensa1807-console.jsonl`):
 
-    python3 serve.py 7807
+    python3 tools/serve.py 7807
 
 Tres bandos en el mismo dispositivo, por turnos: Ingleses, Granaderos y Criollos (estos dos aliados). Los ingleses ganan si terminan su turno ocupando el Fuerte y el Cabildo; los defensores, si resisten 20 turnos o rinden a todos.
 

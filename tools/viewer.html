@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Visor de assets</title>
+<style>
+  body{margin:0;display:flex;height:100vh;font:14px system-ui;background:#1e1e22;color:#ddd}
+  #list{width:220px;overflow:auto;border-right:1px solid #333;padding:8px;box-sizing:border-box}
+  #list button{display:block;width:100%;text-align:left;margin:2px 0;padding:6px;background:#2a2a30;color:#ddd;border:0;border-radius:4px;cursor:pointer}
+  #list button.on{background:#4a6cf7;color:#fff}
+  #view{flex:1;position:relative}
+  #info{position:absolute;left:8px;bottom:8px;font-size:12px;opacity:.7}
+  @media(max-width:600px){body{flex-direction:column}#list{width:100%;height:30vh;border-right:0;border-bottom:1px solid #333}}
+</style>
+<script src="../src/dev/telemetry.js"></script>
+<script type="importmap">{"imports":{"three":"../vendor/three.module.js","three/addons/controls/OrbitControls.js":"../vendor/OrbitControls.js","three/addons/loaders/GLTFLoader.js":"../vendor/GLTFLoader.js"}}</script>
+</head><body>
+<div id="list"><button id="reload">↻ recargar lista</button></div>
+<div id="view"><div id="info"></div></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const view = document.getElementById('view'), info = document.getElementById('info'), list = document.getElementById('list');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2b2b30);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2.5));
+const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(3, 5, 4); scene.add(sun);
+scene.add(new THREE.GridHelper(4, 8, 0x555555, 0x3a3a3a));
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+const loader = new GLTFLoader(), clock = new THREE.Clock();
+let current, mixer;
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+function load(name, btn) {
+  list.querySelectorAll('button.on').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  info.textContent = 'cargando ' + name + '…';
+  loader.load('../assets/' + encodeURIComponent(name) + '?t=' + Date.now(), gltf => {
+    if (current) scene.remove(current);
+    current = gltf.scene;
+    // normalizar: altura 2, apoyado en el piso, centrado
+    const box = new THREE.Box3().setFromObject(current), size = box.getSize(new THREE.Vector3());
+    const s = 2 / Math.max(size.x, size.y, size.z);
+    current.scale.setScalar(s);
+    box.setFromObject(current);
+    const c = box.getCenter(new THREE.Vector3());
+    current.position.sub(new THREE.Vector3(c.x, box.min.y, c.z));
+    scene.add(current);
+    camera.position.set(2.5, 2, 2.5); controls.target.set(0, 1, 0); controls.update();
+    mixer = null;
+    if (gltf.animations.length) { mixer = new THREE.AnimationMixer(current); mixer.clipAction(gltf.animations[0]).play(); }
+    let tris = 0; current.traverse(o => { if (o.isMesh) tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+    info.textContent = `${name} · ${Math.round(tris)} tris · ${gltf.animations.length} anim · ${size.x.toFixed(2)}×${size.y.toFixed(2)}×${size.z.toFixed(2)}`;
+  }, undefined, e => { info.textContent = 'error: ' + e.message; console.error('viewer', name, e.message); });
+}
+
+async function refresh() {
+  list.querySelectorAll('button.f').forEach(b => b.remove());
+  const files = await (await fetch('../assets-list')).json();
+  for (const f of files) {
+    const b = document.createElement('button'); b.className = 'f'; b.textContent = f;
+    b.onclick = () => load(f, b); list.appendChild(b);
+  }
+  const first = list.querySelector('button.f'); if (first && !current) first.click();
+}
+document.getElementById('reload').onclick = refresh;
+refresh();
+
+renderer.setAnimationLoop(() => { const dt = clock.getDelta(); mixer?.update(dt); controls.update(); renderer.render(scene, camera); });
+</script>
+</body></html>

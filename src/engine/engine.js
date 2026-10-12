@@ -1,5 +1,5 @@
-// Engine: game state, movement, combat, turns, HUD (header, bar, overlay). Depends on rules.js and story.js.
-// Rendering lives in render3d.js (ES module): it sets window.render3d and calls onTap(x, y).
+// Engine: game state, movement, combat, turns, HUD (header, bar, overlay). Depends on src/rules/rules.js and src/rules/story.js.
+// Rendering lives in src/render/render3d.js (ES module): it sets window.render3d and calls onTap(x, y).
 
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const $ = id => document.getElementById(id);
