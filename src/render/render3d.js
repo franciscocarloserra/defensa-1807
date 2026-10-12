@@ -2,14 +2,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { Water } from 'three/addons/objects/Water.js';
 
 const HEIGHT = { calle: 0, plaza: 0.03, recova: 0.03, manzana: 0.5, fuerte: 0.15, cabildo: 0.8, iglesia: 0.9, barranca: -0.25, rio: -0.5 };
 const ROOF_VARIATION = 0.3;
 const PALETTE = {
   calle: '#6b5a45', plaza: '#8f7f5c', recova: '#8f7f5c', fuerte: '#7f6a4c', cabildo: '#efe6cf',
-  iglesia: '#d9cfb8', barranca: '#6f7a45', rio: '#7d6f55', // the river is brown, as in period engravings
+  iglesia: '#d9cfb8', barranca: '#86704c', rio: '#7d6f55', // the river is brown, as in period engravings
 };
-const SKY = '#c7cdc9';
+const SKY = '#2e2620'; // dim room around the table
 const WHITEWASH = ['#ece3cc', '#e2d5b8', '#d8c8a6', '#efe9da'];
 // Colors from the uniform plates in data/ (Patricios, Pardos, Morenos, Naturales, Marineros, British line and rifles).
 const UNIT_LOOK = {
@@ -23,15 +24,26 @@ const UNIT_LOOK = {
 };
 const NAME_SCALE = 0.26;
 // Meshy models replacing the placeholder figure, per unit type. Height in tiles.
-// granadero.glb is anachronistic (Granaderos a Caballo date from 1812); it stands in for Patricios
-// until their own model exists, then gets replaced.
-const MODELS = { patricio: 'assets/granadero.glb' };
+// granadero.glb is anachronistic (Granaderos a Caballo date from 1812); it stands in for all local
+// infantry (Liniers' troops, Patricios, militia) until period models exist, then gets replaced.
+const SOLDIER_GLB = 'assets/granadero.glb';
+const BRITISH_GLB = 'assets/soldado-ingles.glb';
+const MODELS = { soldado: SOLDIER_GLB, patricio: SOLDIER_GLB, miliciano: SOLDIER_GLB, linea: BRITISH_GLB, rifle: BRITISH_GLB };
+const CATHEDRAL_GLB = 'assets/catedral.glb', CABILDO_GLB = 'assets/cabildo.glb', LANDMARK_FILL = 0.95; // share of the footprint
+const FORT_GLB = 'assets/fuerte.glb', FORT_FILL = 1.35;
+const HOUSE_GLBS = [1, 2, 3, 4].map(n => `assets/casa-colonial-${n}.glb`), HOUSE_FILL = 1; // share of the tile
+const SHIP_GLB = 'assets/navio.glb', SHIP_LENGTH = 3.6; // tiles, bow to stern
+// Chiefs: British ones share the British soldier model, Liniers and Pueyrredón the criollo; the rest keep the placeholder.
+const CRIOLLO_GLB = 'assets/criollo.glb', CRIOLLO_PEOPLE = ['liniers', 'pueyrredon'];
+const modelOf = u => u.t !== 'jefe' ? MODELS[u.t] : u.f === 'ing' ? BRITISH_GLB : CRIOLLO_PEOPLE.includes(u.p) ? CRIOLLO_GLB : undefined;
+const SOLDIER_BASE = '#2f6fc0'; // base under the granadero model, blue
 const MODEL_HEIGHT = 0.8;
 const CAMERA_FOV = 45;
 const TAP_PX = 10, TAP_MS = 500;
 const MOVE_MS = 260, DEATH_MS = 400, HOP = 0.35;
 const SHADOW_MAP = 2048;
 const DIM_ACTED = 0.4;
+const BASE_STAIN = 0.5; // faction color blended into the wood of figure bases
 
 const cv = document.getElementById('map'), wrap = document.getElementById('wrap');
 const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
@@ -42,7 +54,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(SKY);
-scene.fog = new THREE.Fog(SKY, 30, 70);
+scene.fog = new THREE.Fog(SKY, 35, 75);
 const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 200);
 
 scene.add(new THREE.HemisphereLight('#f4ecdc', '#5a4a36', 1.3));
@@ -87,8 +99,120 @@ const facadeTex = canvasTex(64, 128, (g, w, h) => {
   g.strokeStyle = '#111'; for (let x = 26; x < 42; x += 5) { g.beginPath(); g.moveTo(x, 14); g.lineTo(x, 36); g.stroke(); }
   g.fillStyle = 'rgba(90,70,50,.35)'; g.fillRect(0, 40, w, 4);
 });
+// Mud for streets and plazas: wet/dry blotches, cracked dry crust, hoof and boot prints, a few stones,
+// and glossy puddles. Returns color, bump and roughness maps drawn together so they line up.
+function mudMaps({ ruts = false, puddles = 3, stones = 40 } = {}) {
+  const S = 512, cs = [0, 1, 2].map(() => { const c = document.createElement('canvas'); c.width = c.height = S; return c; });
+  const [col, bump, rough] = cs.map(c => c.getContext('2d'));
+  const R = Math.random, both = (fn) => { fn(col, 0); fn(bump, 1); };
+  col.fillStyle = '#fff'; col.fillRect(0, 0, S, S);
+  bump.fillStyle = '#808080'; bump.fillRect(0, 0, S, S);
+  rough.fillStyle = '#e6e6e6'; rough.fillRect(0, 0, S, S);
+  // blotches: darker = wetter and lower
+  for (let i = 0; i < 120; i++) {
+    const x = R() * S, y = R() * S, r = 20 + R() * 70, wet = R() < 0.5;
+    const gc = col.createRadialGradient(x, y, 0, x, y, r);
+    gc.addColorStop(0, wet ? 'rgba(40,25,10,.22)' : 'rgba(255,240,210,.18)'); gc.addColorStop(1, 'rgba(0,0,0,0)');
+    col.fillStyle = gc; col.fillRect(x - r, y - r, 2 * r, 2 * r);
+    const gb = bump.createRadialGradient(x, y, 0, x, y, r);
+    gb.addColorStop(0, wet ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.2)'); gb.addColorStop(1, 'rgba(0,0,0,0)');
+    bump.fillStyle = gb; bump.fillRect(x - r, y - r, 2 * r, 2 * r);
+  }
+  // wheel ruts along both axes (streets only)
+  if (ruts) for (const p of [0.32, 0.68]) for (const vert of [0, 1]) for (let k = 0; k < 3; k++) {
+    const off = p * S + (R() - 0.5) * 10, wd = 9 + R() * 5;
+    both((g, b) => {
+      g.strokeStyle = b ? 'rgba(0,0,0,.35)' : 'rgba(45,28,12,.28)'; g.lineWidth = wd; g.beginPath();
+      for (let t = 0; t <= S; t += 32) { const o = off + Math.sin(t * 0.02 + k) * 4; vert ? g.lineTo(o, t) : g.lineTo(t, o); }
+      g.stroke();
+    });
+  }
+  // cracks in the dry crust
+  for (let i = 0; i < 70; i++) {
+    let x = R() * S, y = R() * S;
+    both((g, b) => { g.strokeStyle = b ? 'rgba(0,0,0,.5)' : 'rgba(50,32,15,.45)'; g.lineWidth = 1; });
+    col.beginPath(); bump.beginPath(); col.moveTo(x, y); bump.moveTo(x, y);
+    for (let s = 0; s < 4 + R() * 5; s++) { x += (R() - 0.5) * 22; y += (R() - 0.5) * 22; col.lineTo(x, y); bump.lineTo(x, y); }
+    col.stroke(); bump.stroke();
+  }
+  // hoof and boot prints
+  for (let i = 0; i < 90; i++) {
+    const x = R() * S, y = R() * S, a = R() * 6.3, hoof = R() < 0.4;
+    both((g, b) => {
+      g.save(); g.translate(x, y); g.rotate(a);
+      g.fillStyle = b ? 'rgba(0,0,0,.45)' : 'rgba(40,24,10,.35)';
+      g.beginPath();
+      if (hoof) { g.arc(0, 0, 6, 0.3, Math.PI * 2 - 0.3); g.lineTo(0, 0); } else g.ellipse(0, 0, 3.5, 8, 0, 0, 7);
+      g.fill(); g.restore();
+    });
+  }
+  // stones poking out of the mud
+  for (let i = 0; i < stones; i++) {
+    const x = R() * S, y = R() * S, r = 3 + R() * 6, l = 150 + R() * 60, a = R() * 3;
+    col.fillStyle = `rgb(${l},${l - 6},${l - 18})`; col.beginPath(); col.ellipse(x, y, r, r * 0.7, a, 0, 7); col.fill();
+    col.strokeStyle = 'rgba(30,20,10,.5)'; col.lineWidth = 1.2; col.stroke();
+    bump.fillStyle = '#e0e0e0'; bump.beginPath(); bump.ellipse(x, y, r, r * 0.7, a, 0, 7); bump.fill();
+    rough.fillStyle = '#b0b0b0'; rough.beginPath(); rough.ellipse(x, y, r, r * 0.7, a, 0, 7); rough.fill();
+  }
+  // puddles: dark, flat and glossy, with a pale rim of dried silt
+  for (let i = 0; i < puddles; i++) {
+    const x = 40 + R() * (S - 80), y = 40 + R() * (S - 80), rx = 18 + R() * 30, ry = rx * (0.5 + R() * 0.4), a = R() * 3;
+    const blob = (g, grow) => { g.beginPath(); for (let t = 0; t < 6.3; t += 0.3) { const k = 1 + Math.sin(t * 3 + i) * 0.12 + grow; g.lineTo(x + Math.cos(t + a) * rx * k, y + Math.sin(t + a) * ry * k); } g.fill(); };
+    col.fillStyle = 'rgba(200,180,140,.35)'; blob(col, 0.18);
+    col.fillStyle = 'rgba(45,35,25,.85)'; blob(col, 0);
+    col.fillStyle = 'rgba(190,200,205,.25)'; blob(col, -0.4); // sky glint
+    bump.fillStyle = '#3a3a3a'; blob(bump, 0);
+    rough.fillStyle = '#141414'; blob(rough, 0);
+  }
+  noise(col, S, S, 9000, 0.12);
+  noise(bump, S, S, 9000, 0.3);
+  const [map, bumpMap, roughnessMap] = cs.map((c, i) => {
+    const t = new THREE.CanvasTexture(c);
+    if (i === 0) t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return t;
+  });
+  return { map, bumpMap, roughnessMap, bumpScale: 3, roughness: 1 };
+}
+// Barranca: bare trodden earth with sparse dry, yellowed grass.
+const grassTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 60; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '90,65,40' : '200,175,130'},${Math.random() * 0.3})`; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 6 + Math.random() * 14, 0, 7); g.fill(); }
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * w, y = Math.random() * h, d = Math.random() * 0.45;
+    g.strokeStyle = `rgba(${Math.random() < 0.3 ? '85,90,40' : '210,190,120'},${d})`; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.random() * 3 - 1.5, y - 3 - Math.random() * 4); g.stroke();
+  }
+});
+// Shore: wet mud darkening toward the water line (v = 0 at the waterline).
+const mudTex = canvasTex(128, 128, (g, w, h) => {
+  const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#8f7b58'); gr.addColorStop(0.5, '#7a6448'); gr.addColorStop(1, '#4a3a28');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  noise(g, w, h, 1500, 0.25);
+  for (let i = 0; i < 30; i++) { g.fillStyle = 'rgba(160,150,130,.6)'; g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 2 + Math.random() * 3, 1.5 + Math.random() * 2, 0, 0, 7); g.fill(); }
+});
+// Tileable water normal map: sum of sines with integer frequencies so it wraps seamlessly.
+const waterNormals = (() => {
+  const N = 256, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d'), img = g.createImageData(N, N), waves = [];
+  for (let i = 0; i < 24; i++) waves.push([Math.round(Math.random() * 16 - 8) || 1, Math.round(Math.random() * 16 - 8), Math.random() * 6.3, 1 / (1 + i * 0.35)]);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    let dx = 0, dy = 0;
+    for (const [kx, ky, ph, a] of waves) { const c2 = Math.cos(2 * Math.PI * (kx * x + ky * y) / N + ph) * a; dx += c2 * kx; dy += c2 * ky; }
+    const nx = -dx * 0.035, ny = -dy * 0.035, l = Math.hypot(nx, ny, 1), o = (y * N + x) * 4;
+    img.data[o] = (nx / l * 0.5 + 0.5) * 255; img.data[o + 1] = (ny / l * 0.5 + 0.5) * 255; img.data[o + 2] = (1 / l * 0.5 + 0.5) * 255; img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+})();
 const mats = Object.fromEntries(Object.entries(PALETTE).map(([k, c]) => [k, std(c, { map: groundTex })]));
-mats.rio = std(PALETTE.rio, { roughness: 0.35, metalness: 0.05, transparent: true, opacity: 0.92 });
+mats.calle = std(PALETTE.calle, mudMaps({ ruts: true, puddles: 2, stones: 60 }));
+mats.plaza = std(PALETTE.plaza, mudMaps({ puddles: 4, stones: 25 }));
+mats.recova = mats.plaza;
+mats.barranca = std(PALETTE.barranca, { map: grassTex });
+mats.rio = new THREE.MeshBasicMaterial({ visible: false }); // river tiles stay pickable; the Water mesh draws it
 for (const k of ['cabildo', 'iglesia']) mats[k] = std(PALETTE[k], { map: facadeTex });
 const roofMat = std('#fff', { map: roofTex });
 const washMats = WHITEWASH.map(c => { const side = std(c, { map: facadeTex }); return [side, side, roofMat, side, side, side]; });
@@ -111,7 +235,93 @@ for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
   m.userData = { x, y };
   pickables.push(m);
 }
-solid(COLS + 0.6, 0.5, ROWS + 0.6, 0, -1.25, 0, std('#2a2018'));
+const TABLE_Y = -1.62, frameMat = std('#3a2616', { roughness: 0.6 });
+solid(COLS + 0.6, -1 - TABLE_Y, ROWS + 0.6, 0, (TABLE_Y - 1) / 2, 0, frameMat); // board, down to the table
+// Wooden table the whole diorama rests on: planks with grain, knots and dark seams.
+{
+  const PLANK = 128, wood = canvasTex(1024, 1024, (g, w, h) => {
+    for (let p = 0; p < h / PLANK; p++) {
+      const y0 = p * PLANK, base = 0.85 + Math.random() * 0.3;
+      g.fillStyle = `rgb(${142 * base | 0},${92 * base | 0},${54 * base | 0})`; g.fillRect(0, y0, w, PLANK);
+      for (let i = 0; i < 70; i++) { // grain: long wavy streaks
+        const y = y0 + Math.random() * PLANK, a = 1 + Math.random() * 3, f = 0.004 + Math.random() * 0.01, ph = Math.random() * 7;
+        g.strokeStyle = `rgba(${Math.random() < 0.6 ? '60,30,10' : '220,170,110'},${0.08 + Math.random() * 0.18})`;
+        g.lineWidth = 0.5 + Math.random() * 1.8;
+        g.beginPath();
+        for (let x = 0; x <= w; x += 16) g.lineTo(x, Math.min(y0 + PLANK - 2, Math.max(y0 + 2, y + Math.sin(x * f + ph) * a)));
+        g.stroke();
+      }
+      for (let k = 0; k < (Math.random() < 0.6 ? 1 : 0); k++) { // knot with rings
+        const kx = Math.random() * w, ky = y0 + 25 + Math.random() * (PLANK - 50);
+        for (let r = 14; r > 1; r -= 3) { g.strokeStyle = `rgba(70,35,12,${0.25 + (14 - r) / 30})`; g.lineWidth = 1.5; g.beginPath(); g.ellipse(kx, ky, r * 2.2, r, 0, 0, 7); g.stroke(); }
+      }
+      g.fillStyle = 'rgba(25,12,5,.75)'; g.fillRect(0, y0, w, 3); // seam between planks
+      const end = Math.random() * w; g.fillRect(end, y0, 3, PLANK); // butt joint
+    }
+    noise(g, w, h, 6000, 0.08);
+  });
+  wood.wrapS = wood.wrapT = THREE.RepeatWrapping;
+  wood.repeat.set(4, 4);
+  wood.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const TABLE = 80;
+  const table = new THREE.Mesh(new THREE.PlaneGeometry(TABLE, TABLE).rotateX(-Math.PI / 2), std('#fff', { map: wood, roughness: 0.55 }));
+  table.position.set(7, TABLE_Y, 0);
+  table.receiveShadow = true;
+  scene.add(table);
+  const fw = wood.clone(); fw.repeat.set(1, 1); fw.needsUpdate = true;
+  frameMat.map = fw; frameMat.color.set('#7a5638');
+}
+
+// Block tiles: a spread of Meshy colonial houses, one per tile, stretched to the tile and its roof height
+// (units stand on the azoteas). The boxes stay as invisible pick targets; keep them visible if a house fails.
+{
+  const tiles = pickables.filter(m => grid[m.userData.y][m.userData.x] === 'manzana');
+  const hidden = new THREE.MeshBasicMaterial({ visible: false });
+  // Quantized (int16) attributes would clamp once baked to new coordinates; copy them to float.
+  const dequantize = geo => {
+    const g = geo.clone(), get = ['getX', 'getY', 'getZ', 'getW'];
+    for (const [name, a] of Object.entries(g.attributes)) {
+      const f = new Float32Array(a.count * a.itemSize);
+      for (let i = 0; i < a.count; i++) for (let j = 0; j < a.itemSize; j++) f[i * a.itemSize + j] = a[get[j]](i);
+      g.setAttribute(name, new THREE.BufferAttribute(f, a.itemSize));
+    }
+    return g;
+  };
+  let pending = HOUSE_GLBS.length;
+  const variants = [];
+  HOUSE_GLBS.forEach((url, i) => new GLTFLoader().load(url, gltf => {
+    // Bake each mesh into a unit box: x/z in [-0.5, 0.5], y in [0, 1].
+    const root = gltf.scene; root.updateMatrixWorld(true);
+    const parts = [];
+    root.traverse(o => { if (o.isMesh) parts.push({ geo: dequantize(o.geometry).applyMatrix4(o.matrixWorld), mat: o.material }); });
+    const box = new THREE.Box3(); for (const p of parts) { p.geo.computeBoundingBox(); box.union(p.geo.boundingBox); }
+    const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    const norm = new THREE.Matrix4().makeScale(1 / size.x, 1 / size.y, 1 / size.z).multiply(new THREE.Matrix4().makeTranslation(-c.x, -box.min.y, -c.z));
+    for (const p of parts) p.geo.applyMatrix4(norm);
+    variants[i] = parts;
+    if (!--pending) place();
+  }, undefined, e => { console.error('model ' + url, e); if (!--pending) place(); }));
+  function place() {
+    const ok = HOUSE_GLBS.map((_, i) => i).filter(i => variants[i]);
+    if (!ok.length) return;
+    const pick = tiles.map(m => ok[Math.floor(hash(m.userData.x + 3, m.userData.y + 11) * ok.length)]);
+    const mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+    for (const i of ok) {
+      const mine = tiles.filter((_, k) => pick[k] === i);
+      for (const { geo, mat } of variants[i]) {
+        const inst = new THREE.InstancedMesh(geo, mat, mine.length);
+        mine.forEach((m, k) => {
+          const { x, y } = m.userData, turn = Math.floor(hash(y + 5, x + 2) * 4) * Math.PI / 2;
+          mtx.compose(new THREE.Vector3(wx(x), 0, wz(y)), q.setFromAxisAngle(up, turn), new THREE.Vector3(HOUSE_FILL, top[y][x], HOUSE_FILL));
+          inst.setMatrixAt(k, mtx);
+        });
+        inst.castShadow = inst.receiveShadow = true;
+        scene.add(inst);
+      }
+    }
+    for (const m of tiles) m.material = hidden;
+  }
+}
 
 const rect = name => LANDMARKS.find(l => l[1] === name || (!l[1] && l[0] === name));
 const center = ([, , x0, y0, x1, y1]) => [(wx(x0) + wx(x1)) / 2, (wz(y0) + wz(y1)) / 2];
@@ -142,14 +352,17 @@ const center = ([, , x0, y0, x1, y1]) => [(wx(x0) + wx(x1)) / 2, (wz(y0) + wz(y1
   wall.position.set(cx, 0, cz);
   wall.castShadow = wall.receiveShadow = true;
   scene.add(wall);
-  solid(0.12, 2.2, 0.12, cx, 1.1, cz, std('#4a3320'));
+  const pole = solid(0.12, 2.2, 0.12, cx, 1.1, cz, std('#4a3320'));
   const flag = canvasTex(48, 32, (g, w, h) => { g.fillStyle = '#b8261c'; g.fillRect(0, 0, w, h); g.fillStyle = '#e3b53a'; g.fillRect(0, h / 4, w, h / 2); });
   const f = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 0.5), new THREE.MeshStandardMaterial({ map: flag, side: THREE.DoubleSide }));
   f.position.set(cx + 0.42, 1.95, cz);
   scene.add(f);
+  // The fort's walls and bastions reach past the tiles; units still garrison it.
+  landmarkModel('Fuerte', FORT_GLB, [wall, f, pole], { fill: FORT_FILL, keepTiles: true });
 }
 // Ships at anchor in the river, as in the engravings.
-for (const [sx, sz, r] of [[17.6, -8, 0.3], [18.8, -2, -0.2], [17.4, 4, 0.1], [19.2, 9, 0.4]]) {
+const ships = [];
+for (const [sx, sz, r] of [[21, -8, 0.3], [23, -2.5, -0.2], [21, 3, 0.1], [23.5, 8.5, 0.4]]) {
   const ship = new THREE.Group(), wood = std('#4a3320'), sail = std('#efe9da', { side: THREE.DoubleSide });
   const hull = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 2.4), wood); hull.position.y = 0.05; ship.add(hull);
   for (const [z, h] of [[-0.7, 2], [0.1, 2.5], [0.8, 1.8]]) {
@@ -158,22 +371,100 @@ for (const [sx, sz, r] of [[17.6, -8, 0.3], [18.8, -2, -0.2], [17.4, 4, 0.1], [1
   }
   ship.traverse(o => { o.castShadow = true; });
   ship.position.set(sx - COLS / 2, HEIGHT.rio, sz); ship.rotation.y = r;
-  scene.add(ship);
+  scene.add(ship); ships.push(ship);
 }
-// Wider river beyond the board, out to the horizon.
-solid(40, 0.1, 80, wx(15) + 20.5, HEIGHT.rio - 0.06, 0, mats.rio).castShadow = false;
+// Swap the placeholder ships for the Meshy model; keep placeholders if it fails.
+new GLTFLoader().load(SHIP_GLB, gltf => {
+  const m = gltf.scene, d = new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
+  if (d.x > d.z) m.rotation.y = Math.PI / 2; // placeholders run bow-stern along z
+  m.scale.setScalar(SHIP_LENGTH / Math.max(d.x, d.z));
+  const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3());
+  m.position.set(-c.x, -0.22 - b.min.y, -c.z); // centered, hull sunk below the waterline
+  m.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  const pivot = new THREE.Group().add(m);
+  for (const ship of ships) {
+    const n = pivot.clone();
+    n.position.copy(ship.position); n.rotation.copy(ship.rotation);
+    scene.remove(ship); scene.add(n);
+  }
+}, undefined, e => console.error('model ' + SHIP_GLB, e));
+// River: reflective animated water as long as the board and as wide as it (COLS), over a muddy bed.
+const RIVER_X0 = wx(15) - 0.5, RIVER_W = COLS, RIVER_D = ROWS + 0.6, WATER_Y = HEIGHT.rio - 0.02;
+solid(RIVER_W, WATER_Y - 0.05 - TABLE_Y, RIVER_D, RIVER_X0 + RIVER_W / 2, (WATER_Y - 0.05 + TABLE_Y) / 2, 0, std('#3a2e20')).castShadow = false; // bed
+// One frame around the whole diorama (land and river), same height and thickness on all four sides.
+{
+  const T = 0.3, TOP = 0.1, x0 = -COLS / 2, x1 = RIVER_X0 + RIVER_W, zh = ROWS / 2; // inner faces flush with the tiles
+  const hgt = TOP - TABLE_Y, cy = (TOP + TABLE_Y) / 2, xm = (x0 + x1) / 2;
+  for (const sx of [-1, 1]) solid(T, hgt, 2 * zh + 2 * T, sx < 0 ? x0 - T / 2 : x1 + T / 2, cy, 0, frameMat);
+  for (const sz of [-1, 1]) solid(x1 - x0, hgt, T, xm, cy, sz * (zh + T / 2), frameMat);
+}
+const water = new Water(new THREE.PlaneGeometry(RIVER_W, RIVER_D), {
+  textureWidth: 512, textureHeight: 512, waterNormals,
+  sunDirection: sun.position.clone().normalize(), sunColor: '#ffe2b0',
+  waterColor: '#4a3c28', // brown, as in period engravings
+  distortionScale: 1.2, fog: true,
+});
+water.material.uniforms.size.value = 9; // higher = smaller, choppier waves
+water.rotation.x = -Math.PI / 2;
+water.position.set(RIVER_X0 + RIVER_W / 2, WATER_Y, 0);
+scene.add(water);
+// Shore: muddy slope from the barranca down under the waterline, with reeds.
+{
+  const z0 = -RIVER_D / 2, z1 = RIVER_D / 2, xs = RIVER_X0 + 0.75, ytop = HEIGHT.barranca, ybot = WATER_Y - 0.15;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([RIVER_X0, ytop, z0, RIVER_X0, ytop, z1, xs, ybot, z0, xs, ybot, z1], 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, RIVER_D, 1, 0, 0, RIVER_D, 0], 2));
+  geo.setIndex([0, 1, 2, 2, 1, 3]);
+  geo.computeVertexNormals();
+  mudTex.wrapS = THREE.RepeatWrapping;
+  const bank = new THREE.Mesh(geo, std('#fff', { map: mudTex, side: THREE.DoubleSide }));
+  bank.receiveShadow = true;
+  scene.add(bank);
+  const REEDS = 160, reed = new THREE.ConeGeometry(0.025, 0.4, 4).translate(0, 0.2, 0);
+  const reeds = new THREE.InstancedMesh(reed, std('#fff'), REEDS), o = new THREE.Object3D(), tint = new THREE.Color();
+  for (let i = 0; i < REEDS; i++) {
+    const t = Math.random() * 0.7, z = z0 + Math.random() * RIVER_D;
+    o.position.set(RIVER_X0 + 0.1 + t, ytop + (ybot - ytop) * (t / 0.75), z);
+    o.rotation.set(Math.random() * 0.3 - 0.15, 0, Math.random() * 0.3 - 0.15);
+    o.scale.setScalar(0.6 + Math.random() * 0.8);
+    o.updateMatrix(); reeds.setMatrixAt(i, o.matrix);
+    reeds.setColorAt(i, tint.setHSL(0.1 + Math.random() * 0.05, 0.3, 0.32 + Math.random() * 0.15)); // dry, straw-colored
+  }
+  reeds.castShadow = true;
+  scene.add(reeds);
+}
 // Cabildo tower on the plaza side; church towers and the cathedral dome.
 function tower(x, z, base, h, mat) {
-  solid(0.4, h, 0.4, x, base + h / 2, z, mat);
+  const shaft = solid(0.4, h, 0.4, x, base + h / 2, z, mat);
   const cap = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.4, 4), mat);
   cap.position.set(x, base + h + 0.2, z);
   cap.rotation.y = Math.PI / 4;
   cap.castShadow = true;
   scene.add(cap);
+  return [shaft, cap];
+}
+// Swap a landmark's blocks and extras for its Meshy model, fitted to the footprint; keep them if it fails.
+// rot: extra turn (radians) to face the door; fill: share of the footprint; keepTiles: units still stand on it.
+function landmarkModel(name, url, extras, { rot = 0, fill = LANDMARK_FILL, keepTiles = false } = {}) {
+  const l = rect(name), [, , x0, y0, x1, y1] = l, [cx, cz] = center(l);
+  new GLTFLoader().load(url, gltf => {
+    const m = gltf.scene, d = new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
+    if ((d.x > d.z) !== (x1 - x0 > y1 - y0) && x1 - x0 !== y1 - y0) m.rotation.y = Math.PI / 2; // long side along the footprint
+    m.rotation.y += rot;
+    m.scale.setScalar(fill * Math.max(x1 - x0 + 1, y1 - y0 + 1) / Math.max(d.x, d.z));
+    const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3());
+    m.position.set(cx - c.x, (keepTiles ? 0 : HEIGHT.plaza) - b.min.y, cz - c.z);
+    m.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+    if (!keepTiles) for (const t of pickables) if (t.userData.x >= x0 && t.userData.x <= x1 && t.userData.y >= y0 && t.userData.y <= y1) {
+      t.scale.y = 1 + HEIGHT.plaza; t.position.y = (HEIGHT.plaza - 1) / 2; t.material = mats.plaza;
+    }
+    for (const e of extras) scene.remove(e);
+    scene.add(m);
+  }, undefined, e => console.error('model ' + url, e));
 }
 {
   const [cx, cz] = center(rect('Cabildo'));
-  tower(cx + 0.85, cz, HEIGHT.cabildo, 1.1, mats.cabildo);
+  landmarkModel('Cabildo', CABILDO_GLB, tower(cx + 0.85, cz, HEIGHT.cabildo, 1.1, mats.cabildo), { rot: Math.PI / 2 }); // door to the Plaza Mayor
   for (const n of ['S. Francisco', 'S. Domingo']) {
     const [, , x0, y0] = rect(n);
     tower(wx(x0) - 0.3, wz(y0) - 0.3, HEIGHT.iglesia, 1.0, mats.iglesia);
@@ -183,6 +474,7 @@ function tower(x, z, base, h, mat) {
   dome.position.set(dx, HEIGHT.iglesia, dz);
   dome.castShadow = true;
   scene.add(dome);
+  landmarkModel('Catedral', CATHEDRAL_GLB, [dome]);
 }
 
 // --- labels -----------------------------------------------------------------
@@ -221,14 +513,6 @@ function showStreets(st = STREETS_DEFAULT) {
   for (const [y, n] of Object.entries(st.y)) streetLabels.add(groundText(n, wx(1.5), wz(+y), 0));
 }
 showStreets();
-for (const l of LANDMARKS) if (l[1]) {
-  const [map, a] = textTexture(l[1], '#f3ead6', '#000000a0'), [cx, cz] = center(l);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthWrite: false }));
-  s.scale.set(0.42 * a, 0.42, 1);
-  s.position.set(cx, HEIGHT[l[0]] + 1.9, cz);
-  s.renderOrder = 10;
-  scene.add(s);
-}
 {
   const [map, a] = textTexture('Río de la Plata', '#ffffff80');
   const m = new THREE.Mesh(new THREE.PlaneGeometry(0.5 * a, 0.5), new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false }));
@@ -238,8 +522,21 @@ for (const l of LANDMARKS) if (l[1]) {
 }
 
 // --- units ------------------------------------------------------------------
+const baseWood = canvasTex(256, 64, (g, w, h) => {
+  g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 90; i++) {
+    const x = Math.random() * w, a = 2 + Math.random() * 6;
+    g.strokeStyle = `rgba(${Math.random() < 0.7 ? '60,35,15' : '255,230,190'},${0.1 + Math.random() * 0.25})`;
+    g.lineWidth = 0.5 + Math.random() * 1.5; g.beginPath();
+    for (let y = 0; y <= h; y += 4) g.lineTo(x + Math.sin(y * 0.15 + x) * a * 0.3, y);
+    g.stroke();
+  }
+});
+baseWood.wrapS = THREE.RepeatWrapping;
 const UG = {
-  base: new THREE.CylinderGeometry(0.36, 0.36, 0.05, 24),
+  // turned plinth: foot, cove, bevelled top (profile r, y)
+  base: new THREE.LatheGeometry([[0, 0], [0.38, 0], [0.385, 0.012], [0.37, 0.02], [0.345, 0.028], [0.35, 0.04], [0.335, 0.05], [0.31, 0.055], [0, 0.055]].map(([x, y]) => new THREE.Vector2(x, y)), 40),
+  inlay: new THREE.TorusGeometry(0.352, 0.006, 6, 48).rotateX(Math.PI / 2),
   body: new THREE.CylinderGeometry(0.12, 0.17, 0.38, 12),
   head: new THREE.SphereGeometry(0.1, 12, 8),
   shako: new THREE.CylinderGeometry(0.09, 0.1, 0.16, 10),
@@ -256,12 +553,13 @@ const UG = {
 const groups = new Map(), dying = [], models = {};
 
 // Swap placeholders for the model once it loads; keep placeholders if it fails.
-for (const [t, url] of Object.entries(MODELS)) new GLTFLoader().load(url, gltf => {
+for (const url of new Set([...Object.values(MODELS), BRITISH_GLB, CRIOLLO_GLB])) new GLTFLoader().load(url, gltf => {
   const m = gltf.scene, box = new THREE.Box3().setFromObject(m), s = MODEL_HEIGHT / (box.max.y - box.min.y);
   m.scale.setScalar(s);
-  m.position.y = 0.05 - box.min.y * s;
-  models[t] = m;
-  for (const [u, g] of groups) if (u.t === t) {
+  const c = box.getCenter(new THREE.Vector3()).multiplyScalar(s);
+  m.position.set(-c.x, 0.05 - box.min.y * s, -c.z); // centered on the base
+  models[url] = m;
+  for (const [u, g] of groups) if (modelOf(u) === url) {
     const n = makeUnit(u);
     n.position.copy(g.position); n.rotation.copy(g.rotation); n.userData.anim = g.userData.anim;
     scene.remove(g); groups.set(u, n);
@@ -278,9 +576,14 @@ function makeUnit(u) {
     g.add(mesh); mats.push(m);
     return mesh;
   };
-  part(UG.base, FACTIONS[u.f].color, 0, 0.025, 0);
-  if (models[u.t]) {
-    const m = models[u.t].clone();
+  const tone = modelOf(u) === SOLDIER_GLB ? SOLDIER_BASE : FACTIONS[u.f].color;
+  const base = part(UG.base, new THREE.Color('#6b4a2e').lerp(new THREE.Color(tone), BASE_STAIN), 0, 0, 0);
+  Object.assign(base.material, { map: baseWood, roughness: 0.4 });
+  base.receiveShadow = true;
+  const inlay = part(UG.inlay, tone, 0, 0.04, 0); // lacquered band in the faction's own color
+  Object.assign(inlay.material, { roughness: 0.25, metalness: 0.3 });
+  if (models[modelOf(u)]) {
+    const m = models[modelOf(u)].clone();
     m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.material = o.material.clone(); o.material.transparent = true; mats.push(o.material); } });
     g.add(m);
   } else {
@@ -345,7 +648,7 @@ function sync() {
     d.hp.scale.x = 0.5 * r;
     d.hp.material.color.set(r > 0.6 ? '#7f7' : r > 0.3 ? '#fd4' : '#f54');
     const op = u.f === ORDER[fi] && u.acted ? DIM_ACTED : 1;
-    d.mats.forEach(m => { m.opacity = op; });
+    d.mats.forEach(m => { m.opacity = op * (m.userData.k ?? 1); });
   }
   hl.clear();
   if (reach) for (const k of reach) mark(k % COLS, Math.floor(k / COLS), hlMove);
@@ -417,6 +720,7 @@ renderer.setAnimationLoop(now => {
   const s = sel && groups.get(sel);
   ring.visible = !!s;
   if (s) ring.position.set(s.position.x, s.position.y + 0.06, s.position.z);
+  water.material.uniforms.time.value = now / 1800;
   controls.update();
   renderer.render(scene, camera);
 });

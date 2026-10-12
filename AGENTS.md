@@ -8,6 +8,7 @@ src/rules/rules.js    data only: map grid, landmarks, factions, unit stats, setu
 src/rules/story.js    data only: people, places, timeline (summaries of data/)
 src/engine/engine.js  state, movement, combat, turns, win checks, HTML HUD; draw() forwards to the renderer
 src/render/render3d.js  Three.js scene (ES module); reads engine globals, sets window.render3d, taps -> onTap(x, y)
+src/audio/music.js    background music (assets/audio/musica.m4a) at 20%, fade-in on first gesture; #mute toggle
 src/dev/telemetry.js  dev-only: on localhost/LAN posts console errors, exceptions, long tasks to tools/serve.py; off on github.io
 vendor/               Three.js + addons, vendored (importmap in index.html)
 assets/               Meshy GLBs, compressed with gltf-transform (weld, simplify ~8%, 512px WebP, quantize): ~250 KB each
@@ -18,9 +19,10 @@ tools/meshy.py        image -> GLB via Meshy (meshy-6-lite); key in .env (git-ig
 tools/viewer.html     GLB viewer for assets/ at /tools/viewer.html
 ```
 
-Unit types listed in `MODELS` (render3d.js) load a GLB from `assets/`; the rest use placeholder geometry. Script order in index.html matters: rules -> story -> engine -> render (classic scripts share globals).
+Unit types listed in `MODELS` (render3d.js) load a GLB from `assets/` (granadero.glb for local infantry, soldado-ingles.glb for British line and rifles); the rest use placeholder geometry. Ships in the river load `assets/navio.glb` (`SHIP_GLB`). Landmarks (Catedral, Cabildo, Fuerte) swap their placeholders via `landmarkModel()`; block tiles get a hashed spread of `casa-colonial-1..4.glb` (instanced, stretched to the tile and roof height, boxes kept as invisible pick targets). Compress with `gltf-transform optimize in.glb assets/out.glb --compress quantize --texture-compress webp --texture-size 512 --simplify-ratio 0.92 --weld true`. Reference images for Meshy live in `assets/references/`. Script order in index.html matters: rules -> story -> engine -> render (classic scripts share globals).
 
 Rules for this project:
+- Don't open images (screenshots, references, renders) to look at them: it bloats the context. Work from file names and the team's description.
 - No web search. Historical sources come only from documents the team provides in `data/`.
 - Assets will be generated with the Meshy API (`tools/meshy.py`, review in `tools/viewer.html`); compress every GLB before adding it.
 - Publishing beyond the PoC waits for the team to approve the core concepts.

@@ -186,6 +186,8 @@ $('end').onclick = endTurn;
 $('menu').onclick = menu;
 $('help').onclick = () => overlay((SC ? `<p>${SC.help}</p>` : '') + `<p>${HELP_CONTROLS}</p>`, [['Cerrar']]);
 $('turn').textContent = 'Buenos Aires 1806–1810';
-// Deep link for QA: #1806, #1807, #1809 start that episode directly.
-const deep = SCENARIOS.find(s => '#' + s.id === location.hash && !s.locked);
+// QA: #1806, #1807, #1809 start that episode directly, skipping the menu and turn popup.
+// Off github.io (local/LAN dev) with no hash, start the first playable episode the same way.
+const DEV = !location.hostname.endsWith('github.io');
+const deep = SCENARIOS.find(s => '#' + s.id === location.hash && !s.locked) || (DEV && !location.hash && SCENARIOS.find(s => !s.locked));
 if (deep) { newGame(deep); $('overlay').classList.add('hidden'); } else menu();
