@@ -76,6 +76,17 @@ const PEOPLE = {
       Feliciano Chiclana y Gregorio Perdriel, entre otros. Todos sus integrantes eran criollos.`,
     src: ['regimiento-de-patricios.md'],
   },
+  pedraza: {
+    name: 'Manuela Pedraza', short: 'Pedraza', role: 'Vecina de Buenos Aires',
+    text: `Los habitantes lucharon cuerpo a cuerpo contra los británicos. Se la recuerda entre las mujeres que ayudaron
+      a capturar soldados y oficiales enemigos.`,
+    src: ['1807-defensa-vecinos.md'],
+  },
+  cespedes: {
+    name: 'Martina Céspedes', short: 'Céspedes', role: 'Vecina de Buenos Aires',
+    text: `Con sus hijas, ayudó a capturar soldados y oficiales enemigos durante la defensa de la ciudad.`,
+    src: ['1807-defensa-vecinos.md'],
+  },
   cisneros: {
     name: 'Baltasar Hidalgo de Cisneros', short: 'Cisneros', role: 'Virrey',
     text: `Designado por la Junta Central de Sevilla, llegó en julio de 1809 a ocupar el cargo de virrey.`,
