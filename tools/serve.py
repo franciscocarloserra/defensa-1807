@@ -32,6 +32,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(204)
         self.end_headers()
 
+    def end_headers(self):  # dev: always serve fresh files (no stale JS after edits)
+        self.send_header('Cache-Control', 'no-store')
+        super().end_headers()
+
     def log_message(self, *a):
         pass
 

@@ -34,3 +34,5 @@ Historical points to validate with the supplied sources:
 - Criollos fought alongside the Spanish, not as a separate side; the game treats Granaderos and Criollos as allies.
 - In 1807 the Recova split the plaza into Plaza de la Victoria (west) and Plaza del Fuerte (east); the Fuerte stood where the Casa Rosada is, next to the river.
 - Santo Domingo is where Craufurd's column held out and surrendered on 5 July 1807.
+
+- Tácticas (aceite/agua), protagonista ★ y túneles: reglas en `src/rules/rules.js` (TACTICS, HERO, TUNNELS). Vienen del pedido del equipo (docs/INTENT.md), todavía sin fuente en `data/`.

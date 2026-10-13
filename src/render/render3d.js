@@ -1,16 +1,16 @@
-// 3D renderer (Three.js). Reads game state globals from src/engine/engine.js and calls onTap(x, y). GLBs from assets/ per MODELS, placeholder geometry otherwise.
+// 3D renderer (Three.js), first person. Reads game state globals from src/engine/engine.js; each frame calls tick(dt), walkMe() and fire(). GLBs from assets/ per MODELS, placeholder geometry otherwise.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Water } from 'three/addons/objects/Water.js';
 
-const HEIGHT = { calle: 0, plaza: 0.03, recova: 0.03, manzana: 0.5, fuerte: 0.15, cabildo: 0.8, iglesia: 0.9, barranca: -0.25, rio: -0.5 };
+const HEIGHT = { calle: 0, plaza: 0.03, recova: 0.03, manzana: 0.85, fuerte: 0.15, cabildo: 0.8, iglesia: 0.9, barranca: -0.25, rio: -0.5 };
 const ROOF_VARIATION = 0.3;
 const PALETTE = {
   calle: '#6b5a45', plaza: '#8f7f5c', recova: '#8f7f5c', fuerte: '#7f6a4c', cabildo: '#efe6cf',
   iglesia: '#d9cfb8', barranca: '#86704c', rio: '#7d6f55', // the river is brown, as in period engravings
 };
-const SKY = '#2e2620'; // dim room around the table
+const SKY = '#a9c6dc'; // open sky over the pampa (fog fades the field into it)
 const WHITEWASH = ['#ece3cc', '#e2d5b8', '#d8c8a6', '#efe9da'];
 // Colors from the uniform plates in data/ (Patricios, Pardos, Morenos, Naturales, Marineros, British line and rifles).
 const UNIT_LOOK = {
@@ -20,6 +20,7 @@ const UNIT_LOOK = {
   patricio:  { coat: '#1d2f5e', legs: '#e8e4d8', hat: 'tophat',  hatColor: '#151515', belts: true, plume: '#e8e4d8' },
   miliciano: { coat: ['#1d3f8a', '#b8261c', '#2a3f70'], legs: '#d8c9a3', hat: 'tophat', hatColor: '#1a1a1a', plume: '#c8372d' },
   minon:     { coat: '#2f5a33', legs: '#d8c9a3', hat: 'brim',    hatColor: '#1e2a1a' },
+  vecina:    { coat: ['#7a3b5a', '#4a3b6a'], legs: '#3a2a2a', hat: 'brim', hatColor: '#2a2020' },
   jefe:      { coat: null,      legs: '#e8e4d8', hat: 'bicorne', hatColor: '#151515' }, // coat = faction color
 };
 const NAME_SCALE = 0.26;
@@ -36,14 +37,11 @@ const SHIP_GLB = 'assets/navio.glb', SHIP_LENGTH = 3.6; // tiles, bow to stern
 // Chiefs: British ones share the British soldier model, Liniers and Pueyrredón the criollo; the rest keep the placeholder.
 const CRIOLLO_GLB = 'assets/criollo.glb', CRIOLLO_PEOPLE = ['liniers', 'pueyrredon'];
 const modelOf = u => u.t !== 'jefe' ? MODELS[u.t] : u.f === 'ing' ? BRITISH_GLB : CRIOLLO_PEOPLE.includes(u.p) ? CRIOLLO_GLB : undefined;
-const SOLDIER_BASE = '#2f6fc0'; // base under the granadero model, blue
 const MODEL_HEIGHT = 0.8;
 const CAMERA_FOV = 45;
 const TAP_PX = 10, TAP_MS = 500;
-const MOVE_MS = 260, DEATH_MS = 400, HOP = 0.35;
+const DEATH_MS = 400;
 const SHADOW_MAP = 2048;
-const DIM_ACTED = 0.4;
-const BASE_STAIN = 0.5; // faction color blended into the wood of figure bases
 
 const cv = document.getElementById('map'), wrap = document.getElementById('wrap');
 const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
@@ -54,10 +52,10 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(SKY);
-scene.fog = new THREE.Fog(SKY, 35, 75);
+scene.fog = new THREE.Fog(SKY, 30, 90);
 const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 200);
 
-scene.add(new THREE.HemisphereLight('#f4ecdc', '#5a4a36', 1.3));
+scene.add(new THREE.HemisphereLight('#e8f0f8', '#4e5a30', 1.3));
 const sun = new THREE.DirectionalLight('#ffd49a', 2.4);
 sun.position.set(-9, 16, 7);
 sun.castShadow = true;
@@ -235,41 +233,69 @@ for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
   m.userData = { x, y };
   pickables.push(m);
 }
-const TABLE_Y = -1.62, frameMat = std('#3a2616', { roughness: 0.6 });
-solid(COLS + 0.6, -1 - TABLE_Y, ROWS + 0.6, 0, (TABLE_Y - 1) / 2, 0, frameMat); // board, down to the table
-// Wooden table the whole diorama rests on: planks with grain, knots and dark seams.
+const TABLE_Y = -1.62, frameMat = std('#5a4630'); // earth under the city and the field
+solid(COLS + 0.6, -1 - TABLE_Y, ROWS + 0.6, 0, (TABLE_Y - 1) / 2, 0, frameMat);
+// Open country around the city: grass to the horizon, tufts of pasto and a few lone trees (instead of a table).
+const FIELD = 160, FIELD_Y = -0.012;
 {
-  const PLANK = 128, wood = canvasTex(1024, 1024, (g, w, h) => {
-    for (let p = 0; p < h / PLANK; p++) {
-      const y0 = p * PLANK, base = 0.85 + Math.random() * 0.3;
-      g.fillStyle = `rgb(${142 * base | 0},${92 * base | 0},${54 * base | 0})`; g.fillRect(0, y0, w, PLANK);
-      for (let i = 0; i < 70; i++) { // grain: long wavy streaks
-        const y = y0 + Math.random() * PLANK, a = 1 + Math.random() * 3, f = 0.004 + Math.random() * 0.01, ph = Math.random() * 7;
-        g.strokeStyle = `rgba(${Math.random() < 0.6 ? '60,30,10' : '220,170,110'},${0.08 + Math.random() * 0.18})`;
-        g.lineWidth = 0.5 + Math.random() * 1.8;
-        g.beginPath();
-        for (let x = 0; x <= w; x += 16) g.lineTo(x, Math.min(y0 + PLANK - 2, Math.max(y0 + 2, y + Math.sin(x * f + ph) * a)));
-        g.stroke();
-      }
-      for (let k = 0; k < (Math.random() < 0.6 ? 1 : 0); k++) { // knot with rings
-        const kx = Math.random() * w, ky = y0 + 25 + Math.random() * (PLANK - 50);
-        for (let r = 14; r > 1; r -= 3) { g.strokeStyle = `rgba(70,35,12,${0.25 + (14 - r) / 30})`; g.lineWidth = 1.5; g.beginPath(); g.ellipse(kx, ky, r * 2.2, r, 0, 0, 7); g.stroke(); }
-      }
-      g.fillStyle = 'rgba(25,12,5,.75)'; g.fillRect(0, y0, w, 3); // seam between planks
-      const end = Math.random() * w; g.fillRect(end, y0, 3, PLANK); // butt joint
+  const grassTex = canvasTex(512, 512, (g, w, h) => {
+    g.fillStyle = '#6f8a3e'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 260; i++) { // patches of lighter and darker grass
+      const c = Math.random() < 0.5 ? 'rgba(150,170,80,.18)' : 'rgba(55,80,30,.2)';
+      g.fillStyle = c; g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 10 + Math.random() * 40, 6 + Math.random() * 25, Math.random() * 3, 0, 7); g.fill();
     }
-    noise(g, w, h, 6000, 0.08);
+    for (let i = 0; i < 9000; i++) { // blades
+      const x = Math.random() * w, y = Math.random() * h, l = 3 + Math.random() * 6;
+      g.strokeStyle = `rgba(${Math.random() < 0.3 ? '185,190,110' : '50,85,30'},${0.25 + Math.random() * 0.4})`;
+      g.lineWidth = 1; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.random() * 2 - 1, y - l); g.stroke();
+    }
   });
-  wood.wrapS = wood.wrapT = THREE.RepeatWrapping;
-  wood.repeat.set(4, 4);
-  wood.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const TABLE = 80;
-  const table = new THREE.Mesh(new THREE.PlaneGeometry(TABLE, TABLE).rotateX(-Math.PI / 2), std('#fff', { map: wood, roughness: 0.55 }));
-  table.position.set(7, TABLE_Y, 0);
-  table.receiveShadow = true;
-  scene.add(table);
-  const fw = wood.clone(); fw.repeat.set(1, 1); fw.needsUpdate = true;
-  frameMat.map = fw; frameMat.color.set('#7a5638');
+  grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
+  grassTex.repeat.set(FIELD / 4, FIELD / 4);
+  grassTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const grassMat = std('#fff', { map: grassTex });
+  // Land side only (the river runs on the other), around the board: left of it, and above and below it.
+  const xr = wx(15) - 0.5, x0 = -COLS / 2, zh = ROWS / 2;
+  const patch = (xa, xb, za, zb) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(xb - xa, zb - za).rotateX(-Math.PI / 2), grassMat);
+    m.geometry.attributes.uv.array.forEach((v, i, arr) => { arr[i] = v * (i % 2 ? (zb - za) : (xb - xa)) / FIELD; });
+    m.position.set((xa + xb) / 2, FIELD_Y, (za + zb) / 2);
+    m.receiveShadow = true;
+    scene.add(m);
+  };
+  patch(-FIELD / 2, x0, -FIELD / 2, FIELD / 2);
+  patch(x0, xr, -FIELD / 2, -zh);
+  patch(x0, xr, zh, FIELD / 2);
+  for (const sz of [-1, 1]) // earth bank down to the river, above and below the board
+    solid(0.2, -FIELD_Y - TABLE_Y, FIELD / 2 - zh, xr - 0.1, (FIELD_Y + TABLE_Y) / 2, sz * (zh + FIELD / 2) / 2, frameMat).castShadow = false;
+  // Tufts and trees, scattered off the board.
+  const off = (x, z, m) => x < xr - 0.3 && !(x > x0 - m && z > -zh - m && z < zh + m);
+  const TUFTS = 3000, tuft = new THREE.ConeGeometry(0.06, 0.22, 4).translate(0, 0.1, 0);
+  const tufts = new THREE.InstancedMesh(tuft, std('#fff'), TUFTS), o = new THREE.Object3D(), tint = new THREE.Color();
+  for (let i = 0; i < TUFTS; i++) {
+    let x, z;
+    do { const r = 1 + Math.random() ** 1.5 * 45, a = Math.random() * 7; x = r * Math.cos(a); z = r * Math.sin(a); } while (!off(x, z, 0.3));
+    o.position.set(x, FIELD_Y, z); o.rotation.set(Math.random() * 0.3 - 0.15, Math.random() * 7, Math.random() * 0.3 - 0.15);
+    o.scale.set(1, 0.6 + Math.random() * 1.2, 1); o.updateMatrix(); tufts.setMatrixAt(i, o.matrix);
+    tufts.setColorAt(i, tint.setHSL(0.2 + Math.random() * 0.08, 0.45, 0.25 + Math.random() * 0.15));
+  }
+  scene.add(tufts);
+  const trunkMat = std('#4b3a28'), leafMat = std('#3d5a2a');
+  for (let i = 0; i < 28; i++) { // ombúes: thick trunk, wide crown
+    let x, z;
+    do { x = -FIELD / 2 * 0.4 + Math.random() * (xr + FIELD / 2 * 0.4); z = (Math.random() * 2 - 1) * 35; } while (!off(x, z, 3));
+    const s = 0.7 + Math.random() * 0.6, tree = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.22, 0.7, 7), trunkMat); trunk.position.y = 0.35;
+    tree.add(trunk);
+    for (let k = 0; k < 4; k++) {
+      const c = new THREE.Mesh(new THREE.SphereGeometry(0.45 + Math.random() * 0.2, 9, 7), leafMat);
+      c.position.set(Math.random() * 0.6 - 0.3, 0.95 + Math.random() * 0.25, Math.random() * 0.6 - 0.3);
+      tree.add(c);
+    }
+    tree.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+    tree.position.set(x, FIELD_Y, z); tree.scale.setScalar(s); tree.rotation.y = Math.random() * 7;
+    scene.add(tree);
+  }
 }
 
 // Block tiles: a spread of Meshy colonial houses, one per tile, stretched to the tile and its roof height
@@ -388,16 +414,9 @@ new GLTFLoader().load(SHIP_GLB, gltf => {
     scene.remove(ship); scene.add(n);
   }
 }, undefined, e => console.error('model ' + SHIP_GLB, e));
-// River: reflective animated water as long as the board and as wide as it (COLS), over a muddy bed.
-const RIVER_X0 = wx(15) - 0.5, RIVER_W = COLS, RIVER_D = ROWS + 0.6, WATER_Y = HEIGHT.rio - 0.02;
+// River: reflective animated water out to the horizon, over a muddy bed.
+const RIVER_X0 = wx(15) - 0.5, RIVER_W = 70, RIVER_D = FIELD, WATER_Y = HEIGHT.rio - 0.02;
 solid(RIVER_W, WATER_Y - 0.05 - TABLE_Y, RIVER_D, RIVER_X0 + RIVER_W / 2, (WATER_Y - 0.05 + TABLE_Y) / 2, 0, std('#3a2e20')).castShadow = false; // bed
-// One frame around the whole diorama (land and river), same height and thickness on all four sides.
-{
-  const T = 0.3, TOP = 0.1, x0 = -COLS / 2, x1 = RIVER_X0 + RIVER_W, zh = ROWS / 2; // inner faces flush with the tiles
-  const hgt = TOP - TABLE_Y, cy = (TOP + TABLE_Y) / 2, xm = (x0 + x1) / 2;
-  for (const sx of [-1, 1]) solid(T, hgt, 2 * zh + 2 * T, sx < 0 ? x0 - T / 2 : x1 + T / 2, cy, 0, frameMat);
-  for (const sz of [-1, 1]) solid(x1 - x0, hgt, T, xm, cy, sz * (zh + T / 2), frameMat);
-}
 const water = new Water(new THREE.PlaneGeometry(RIVER_W, RIVER_D), {
   textureWidth: 512, textureHeight: 512, waterNormals,
   sunDirection: sun.position.clone().normalize(), sunColor: '#ffe2b0',
@@ -420,7 +439,7 @@ scene.add(water);
   const bank = new THREE.Mesh(geo, std('#fff', { map: mudTex, side: THREE.DoubleSide }));
   bank.receiveShadow = true;
   scene.add(bank);
-  const REEDS = 160, reed = new THREE.ConeGeometry(0.025, 0.4, 4).translate(0, 0.2, 0);
+  const REEDS = 900, reed = new THREE.ConeGeometry(0.025, 0.4, 4).translate(0, 0.2, 0);
   const reeds = new THREE.InstancedMesh(reed, std('#fff'), REEDS), o = new THREE.Object3D(), tint = new THREE.Color();
   for (let i = 0; i < REEDS; i++) {
     const t = Math.random() * 0.7, z = z0 + Math.random() * RIVER_D;
@@ -522,21 +541,7 @@ showStreets();
 }
 
 // --- units ------------------------------------------------------------------
-const baseWood = canvasTex(256, 64, (g, w, h) => {
-  g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
-  for (let i = 0; i < 90; i++) {
-    const x = Math.random() * w, a = 2 + Math.random() * 6;
-    g.strokeStyle = `rgba(${Math.random() < 0.7 ? '60,35,15' : '255,230,190'},${0.1 + Math.random() * 0.25})`;
-    g.lineWidth = 0.5 + Math.random() * 1.5; g.beginPath();
-    for (let y = 0; y <= h; y += 4) g.lineTo(x + Math.sin(y * 0.15 + x) * a * 0.3, y);
-    g.stroke();
-  }
-});
-baseWood.wrapS = THREE.RepeatWrapping;
 const UG = {
-  // turned plinth: foot, cove, bevelled top (profile r, y)
-  base: new THREE.LatheGeometry([[0, 0], [0.38, 0], [0.385, 0.012], [0.37, 0.02], [0.345, 0.028], [0.35, 0.04], [0.335, 0.05], [0.31, 0.055], [0, 0.055]].map(([x, y]) => new THREE.Vector2(x, y)), 40),
-  inlay: new THREE.TorusGeometry(0.352, 0.006, 6, 48).rotateX(Math.PI / 2),
   body: new THREE.CylinderGeometry(0.12, 0.17, 0.38, 12),
   head: new THREE.SphereGeometry(0.1, 12, 8),
   shako: new THREE.CylinderGeometry(0.09, 0.1, 0.16, 10),
@@ -546,7 +551,7 @@ const UG = {
   bicorne: new THREE.BoxGeometry(0.34, 0.1, 0.1),
   tophat: new THREE.CylinderGeometry(0.1, 0.09, 0.2, 10),
   plume: new THREE.CylinderGeometry(0.02, 0.03, 0.14, 6),
-  legs: new THREE.CylinderGeometry(0.15, 0.12, 0.14, 12),
+  leg: new THREE.CylinderGeometry(0.055, 0.045, 0.2, 8),
   belt: new THREE.BoxGeometry(0.04, 0.4, 0.02),
   musket: new THREE.BoxGeometry(0.03, 0.56, 0.03),
 };
@@ -557,17 +562,19 @@ for (const url of new Set([...Object.values(MODELS), BRITISH_GLB, CRIOLLO_GLB]))
   const m = gltf.scene, box = new THREE.Box3().setFromObject(m), s = MODEL_HEIGHT / (box.max.y - box.min.y);
   m.scale.setScalar(s);
   const c = box.getCenter(new THREE.Vector3()).multiplyScalar(s);
-  m.position.set(-c.x, 0.05 - box.min.y * s, -c.z); // centered on the base
+  m.position.set(-c.x, -box.min.y * s, -c.z); // feet on the ground
   models[url] = m;
   for (const [u, g] of groups) if (modelOf(u) === url) {
     const n = makeUnit(u);
-    n.position.copy(g.position); n.rotation.copy(g.rotation); n.userData.anim = g.userData.anim;
+    n.position.copy(g.position); n.rotation.copy(g.rotation); n.visible = g.visible; n.userData.y = g.userData.y;
     scene.remove(g); groups.set(u, n);
   }
 }, undefined, e => console.error('model ' + url, e));
 
+const UNIT_SCALE = 0.6; // figures smaller than a block, so the city reads at street scale
+
 function makeUnit(u) {
-  const look = UNIT_LOOK[u.t], g = new THREE.Group(), mats = [];
+  const look = UNIT_LOOK[u.t], g = new THREE.Group(), mats = [], legs = [];
   const part = (geo, color, x, y, z) => {
     const m = std(color, { roughness: 0.7, transparent: true });
     const mesh = new THREE.Mesh(geo, m);
@@ -576,19 +583,16 @@ function makeUnit(u) {
     g.add(mesh); mats.push(m);
     return mesh;
   };
-  const tone = modelOf(u) === SOLDIER_GLB ? SOLDIER_BASE : FACTIONS[u.f].color;
-  const base = part(UG.base, new THREE.Color('#6b4a2e').lerp(new THREE.Color(tone), BASE_STAIN), 0, 0, 0);
-  Object.assign(base.material, { map: baseWood, roughness: 0.4 });
-  base.receiveShadow = true;
-  const inlay = part(UG.inlay, tone, 0, 0.04, 0); // lacquered band in the faction's own color
-  Object.assign(inlay.material, { roughness: 0.25, metalness: 0.3 });
   if (models[modelOf(u)]) {
     const m = models[modelOf(u)].clone();
     m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.material = o.material.clone(); o.material.transparent = true; mats.push(o.material); } });
     g.add(m);
   } else {
     const coat = Array.isArray(look.coat) ? look.coat[groups.size % look.coat.length] : look.coat || FACTIONS[u.f].color;
-    part(UG.legs, look.legs, 0, 0.12, 0);
+    for (const x of [-0.06, 0.06]) { // each leg hangs from the hip so it can swing
+      const hip = new THREE.Group(); hip.position.set(x, 0.2, 0); g.add(hip);
+      const l = part(UG.leg, look.legs, 0, -0.1, 0); g.remove(l); hip.add(l); legs.push(hip);
+    }
     part(UG.body, coat, 0, 0.3, 0).scale.y = 0.75;
     if (look.belts) for (const r of [0.6, -0.6]) part(UG.belt, '#f2efe6', 0, 0.3, 0.13).rotation.z = r;
     if (look.plume) part(UG.plume, look.plume, 0.07, 0.8, 0);
@@ -601,66 +605,223 @@ function makeUnit(u) {
   const hp = new THREE.Sprite(new THREE.SpriteMaterial({ color: '#7f7' }));
   for (const s of [hpBg, hp]) { s.center.set(0, 0.5); s.scale.set(0.5, 0.06, 1); s.position.set(-0.25, 0.98, 0); g.add(s); }
   if (u.p) {
-    const [map, a] = textTexture(PEOPLE[u.p].short, '#fff', '#000000b0');
+    const [map, a] = textTexture((u.hero ? '★ ' : '') + PEOPLE[u.p].short, u.hero ? '#f3d58a' : '#fff', '#000000b0');
     const name = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthWrite: false, transparent: true }));
-    name.scale.set(NAME_SCALE * a, NAME_SCALE, 1);
+    name.scale.set(NAME_SCALE * a / UNIT_SCALE, NAME_SCALE / UNIT_SCALE, 1);
     name.position.y = 1.18;
     name.renderOrder = 11;
     g.add(name); mats.push(name.material);
   }
-  g.userData = { unit: u, mats, hp };
+  g.scale.setScalar(UNIT_SCALE);
+  g.userData = { unit: u, mats, hp, legs };
   g.traverse(o => { o.userData.unit = u; });
   scene.add(g);
   return g;
 }
 
-const posOf = u => new THREE.Vector3(wx(u.x), top[u.y][u.x], wz(u.y));
+const posOf = u => new THREE.Vector3(wx(u.x), top[Math.round(u.y)][Math.round(u.x)], wz(u.y)); // u.x, u.y: tiles, floats
 
-// --- highlights ---------------------------------------------------------------
-const hl = new THREE.Group();
-scene.add(hl);
-const hlGeo = new THREE.PlaneGeometry(0.94, 0.94).rotateX(-Math.PI / 2);
-const hlMove = new THREE.MeshBasicMaterial({ color: '#4fa0ff', transparent: true, opacity: 0.45, depthWrite: false });
-const hlHit = new THREE.MeshBasicMaterial({ color: '#ff3c3c', transparent: true, opacity: 0.55, depthWrite: false });
-const ring = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.48, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#fff' }));
-scene.add(ring);
-
-function mark(x, y, mat) {
-  const m = new THREE.Mesh(hlGeo, mat);
-  m.position.set(wx(x), top[y][x] + 0.03, wz(y));
-  hl.add(m);
-}
-
-// Called by game.js draw() after every state change.
+// Called by engine draw() on big changes (new game, end); units also follow the engine every frame.
 function sync() {
   showStreets(SC && SC.streets);
-  const now = performance.now(), alive = new Set(units);
+  trapdoors.visible = !!SC && SC.tunnels === MINE;
+  syncWalls();
+  syncUnits(performance.now());
+}
+
+const BOB = 0.025, STEP_MS = 110, SWAY = 0.09;
+function syncUnits(now) {
+  const alive = new Set(units);
   for (const [u, g] of groups) if (!alive.has(u)) { groups.delete(u); dying.push({ g, t0: now }); }
   for (const u of units) {
     let g = groups.get(u);
-    const to = posOf(u);
-    if (!g) { g = makeUnit(u); g.position.copy(to); groups.set(u, g); }
-    else if (!g.position.equals(to) && !(g.userData.anim && g.userData.anim.to.equals(to))) {
-      g.userData.anim = { from: g.position.clone(), to, t0: now };
-      g.rotation.y = Math.atan2(to.x - g.position.x, to.z - g.position.z);
-    }
-    const r = u.hp / TYPES[u.t].hp, d = g.userData;
+    const p = posOf(u);
+    if (!g) { g = makeUnit(u); g.position.copy(p); groups.set(u, g); }
+    g.position.x = p.x; g.position.z = p.z;
+    g.userData.y = (g.userData.y ?? p.y) + (p.y - (g.userData.y ?? p.y)) * 0.2; // ease up/down steps (azoteas, barranca)
+    const ph = now / STEP_MS + (g.id % 7), w = u.moving ? 1 : 0; // gait: bob, rock side to side, swing the legs
+    g.position.y = g.userData.y + w * Math.abs(Math.sin(ph)) * BOB;
+    g.rotation.set(0, u.dir, w * Math.sin(ph) * SWAY, 'YXZ');
+    if (g.userData.legs) for (const [i, l] of g.userData.legs.entries()) l.rotation.x = w * Math.sin(ph + i * Math.PI) * 0.6;
+    g.visible = u !== me || over; // I don't see my own figure from inside it
+    const r = Math.max(0, u.hp) / stat(u, 'hp'), d = g.userData;
     d.hp.scale.x = 0.5 * r;
-    d.hp.material.color.set(r > 0.6 ? '#7f7' : r > 0.3 ? '#fd4' : '#f54');
-    const op = u.f === ORDER[fi] && u.acted ? DIM_ACTED : 1;
-    d.mats.forEach(m => { m.opacity = op * (m.userData.k ?? 1); });
+    d.hp.material.color.set(u.hitT > 0 ? '#fff' : r > 0.6 ? '#7f7' : r > 0.3 ? '#fd4' : '#f54');
   }
-  hl.clear();
-  if (reach) for (const k of reach) mark(k % COLS, Math.floor(k / COLS), hlMove);
-  if (sel && !sel.acted) for (const o of targets(sel)) mark(o.x, o.y, hlHit);
+}
+
+// Smuggling-tunnel trapdoors: only the side that knows them sees them.
+const trapdoors = new THREE.Group();
+scene.add(trapdoors);
+for (const [x, y] of TUNNELS) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.03, 0.4), std('#3b2614', { roughness: 0.9 }));
+  m.position.set(wx(x), top[y][x] + 0.015, wz(y));
+  trapdoors.add(m);
+}
+
+// Barricades: a pile of sacks and planks across the street, per scenario.
+const barricades = new THREE.Group(), sackMat = std('#a08a62', { roughness: 0.95 }), plankMat = std('#5a3d22');
+scene.add(barricades);
+function syncWalls() {
+  barricades.clear();
+  for (const [x, y] of SC ? walls : []) {
+    const across = x % 3 === 0 && y % 3 !== 0 ? 'x' : 'z'; // lie across the street's length
+    for (let i = 0; i < 5; i++) for (let j = 0; j < 2 - (i % 2); j++) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.09, 0.12), i % 2 ? plankMat : sackMat);
+      const o = (i - 2) * 0.17 + (j ? 0.05 : 0);
+      m.position.set(wx(x) + (across === 'x' ? o : 0), top[y][x] + 0.05 + j * 0.09, wz(y) + (across === 'z' ? o : 0));
+      if (across === 'z') m.rotation.y = Math.PI / 2;
+      m.castShadow = m.receiveShadow = true;
+      barricades.add(m);
+    }
+  }
+}
+
+// Cartridge boxes left where soldiers fell.
+const crates = new THREE.Group(), crateGeo = new THREE.BoxGeometry(0.14, 0.08, 0.1), crateMat = std('#6b4a2e');
+scene.add(crates);
+let cratesKey = '';
+function syncCrates() {
+  const k = drops.map(d => d.x.toFixed(2) + d.y.toFixed(2)).join();
+  if (k === cratesKey) return;
+  cratesKey = k;
+  crates.clear();
+  for (const d of drops) { const m = new THREE.Mesh(crateGeo, crateMat); m.position.copy(posOf(d)).y += 0.04; m.castShadow = true; crates.add(m); }
+}
+
+// --- effects ------------------------------------------------------------------
+// Short-lived meshes that fade out: musket tracers and smoke, boiling oil and water.
+const fx = [];
+function fade(objs, ms, grow = 0) {
+  scene.add(...objs);
+  fx.push({ objs, ms, grow, t0: performance.now(), op: objs.map(o => o.material.opacity) });
+}
+const fxMat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
+function beam(a, b, r, mat) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, a.distanceTo(b), 6), mat);
+  m.position.copy(a).lerp(b, 0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+  return m;
+}
+const smokeGeo = new THREE.SphereGeometry(0.07, 8, 6);
+
+function shotFx({ k, by, to }) {
+  if (by === me) kick(k);
+  if (WEAPONS[k].melee) return;
+  const fwd = camera.getWorldDirection(new THREE.Vector3());
+  const a = by === me ? camera.position.clone().add(fwd.clone().multiplyScalar(0.4)).add(new THREE.Vector3(0, -0.06, 0)) : posOf(by).add(new THREE.Vector3(0, 0.3, 0));
+  const b = to ? posOf(to).add(new THREE.Vector3(0, 0.25, 0)) : a.clone().add(fwd.multiplyScalar(reach(me)));
+  if (k === 'piedras') return fade([beam(a, b, 0.012, fxMat('#9a9488', 0.8))], 250);
+  const smoke = new THREE.Mesh(smokeGeo, fxMat('#d9d4c8', 0.6));
+  smoke.position.copy(a);
+  fade([beam(a, b, 0.006, fxMat('#ffe7a0', 0.9))], 120);
+  fade([smoke], 1200, 3);
+}
+
+// Boiling grease/water poured (or bricks thrown) from a roof: a falling stream and a splash.
+function pour({ k, from, to }) {
+  const color = { grasa: '#d98a1c', aceite: '#e0b23a', ladrillos: '#a5532f' }[k] || '#bfe6ff';
+  const a = posOf({ x: from[0], y: from[1] }).add(new THREE.Vector3(0, 0.2, 0)), b = posOf({ x: to[0], y: to[1] });
+  const splash = new THREE.Mesh(new THREE.CircleGeometry(0.35, 20).rotateX(-Math.PI / 2), fxMat(color, 0.85));
+  splash.position.copy(b).y += 0.04;
+  fade([beam(a, b, 0.05, fxMat(color, 0.85)), splash], 900);
+}
+
+// --- first person -------------------------------------------------------------
+// My ★'s eyes: W A S D walk, the mouse looks (pointer lock), click fires or strikes, right button parries, Space jumps, wheel changes weapon. Touch: left side walks, right side looks, tap fires.
+const JUMP_V = 1.6, GRAVITY = 5.5; // jump: up speed and gravity, in scene units (a tile is about 1)
+let jumpY = 0, jumpV = 0;
+const EYE = 0.42, FPS_FOV = 70, LOOK = 0.0025, STICK_PX = 50;
+let yaw = 0, pitch = 0, inFps = false, fpsGame = -1, eyeY = 0;
+const fps = () => !!(SC && me && !over);
+camera.rotation.order = 'YXZ';
+
+// What I hold (musket, blade, lance, stone or pot), fixed to the camera.
+const hand = new THREE.Group();
+camera.add(hand);
+scene.add(camera);
+const musket = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.022, 0.44), std('#4a3320'));
+const blade = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.005, 0.12), std('#d0d0d0', { metalness: 0.8, roughness: 0.3 }));
+const stone = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), std('#8a8478'));
+musket.position.set(0.09, -0.09, -0.26);
+blade.position.set(0.09, -0.08, -0.53);
+stone.position.set(0.1, -0.09, -0.22);
+const steel = std('#d0d0d0', { metalness: 0.8, roughness: 0.3 });
+const sword = new THREE.Group(), lance = new THREE.Group(), pot = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.035, 0.06, 12), std('#3a3a3a', { metalness: 0.5 }));
+const hilt = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.008, 0.01), std('#b08d3a', { metalness: 0.7 }));
+const swordBlade = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.02, 0.36), steel);
+swordBlade.position.z = -0.18; sword.add(hilt, swordBlade);
+sword.position.set(0.11, -0.1, -0.2); sword.rotation.x = 0.25;
+const cane = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.01, 0.9, 6).rotateX(Math.PI / 2), std('#b9a65c'));
+const tip = new THREE.Mesh(new THREE.ConeGeometry(0.014, 0.08, 6).rotateX(-Math.PI / 2), steel);
+cane.position.z = -0.25; tip.position.z = -0.74; lance.add(cane, tip);
+lance.position.set(0.1, -0.1, -0.1);
+pot.position.set(0.1, -0.1, -0.22);
+hand.add(musket, blade, stone, sword, lance, pot);
+let kickT = -1e9, kickK = 'fusil';
+function kick(k) { kickT = performance.now(); kickK = k; }
+function syncHand(now) {
+  const w = me.w;
+  musket.visible = w.startsWith('fusil') || w === 'bayoneta'; blade.visible = w === 'bayoneta'; stone.visible = w === 'piedras';
+  sword.visible = w === 'sable' || w === 'espada'; lance.visible = w === 'tacuara'; pot.visible = w === 'aceite';
+  swordBlade.scale.set(1, w === 'sable' ? 1.4 : 0.6, w === 'sable' ? 1 : 1.15);
+  const t = Math.min(1, (now - kickT) / 250), s = Math.sin(Math.PI * t), cut = kickK === 'sable' || kickK === 'espada';
+  hand.position.z = kickK === 'bayoneta' || kickK === 'tacuara' ? -0.16 * s : kickK === 'piedras' || kickK === 'aceite' ? -0.08 * s : cut ? -0.06 * s : 0.05 * (1 - t) * (t < 1);
+  hand.position.x = cut ? -0.1 * s : 0;
+  hand.rotation.z = cut ? 0.9 * s : 0; // sabre and sword cut sideways
+  hand.position.y = (me.moving ? Math.sin(now / 110) * 0.006 : 0) + (me.guard ? 0.05 : 0);
+  hand.rotation.y = me.guard ? 0.9 : 0; // guard: the blade across
+}
+
+function look(dx, dy) {
+  yaw -= dx * LOOK;
+  pitch = THREE.MathUtils.clamp(pitch - dy * LOOK, -1.2, 1.2);
+}
+
+function enterFps() {
+  inFps = true;
+  if (fpsGame !== game) { // a new game: face the nearest enemy
+    fpsGame = game;
+    const foe = units.filter(u => enemy(me, u)).sort((a, b) => dist(me, a) - dist(me, b))[0];
+    if (foe) yaw = Math.atan2(-(foe.x - me.x), -(foe.y - me.y));
+    pitch = 0;
+    eyeY = posOf(me).y + EYE;
+  }
+  controls.enabled = false;
+  camera.fov = FPS_FOV; camera.near = 0.02; camera.updateProjectionMatrix();
+  document.body.classList.add('fps');
+}
+function leaveFps() {
+  inFps = false;
+  controls.enabled = true;
+  camera.fov = CAMERA_FOV; camera.near = 0.1;
+  framed = false; resize(); // back to the whole city
+  document.body.classList.remove('fps');
+}
+
+const ray = new THREE.Raycaster(), mid = new THREE.Vector2();
+function shootNow() {
+  if (!fps() || paused()) return;
+  ray.setFromCamera(mid, camera);
+  const foes = units.filter(u => enemy(me, u));
+  let t = ray.intersectObjects(foes.map(u => groups.get(u)).filter(Boolean), true)[0]?.object.userData.unit || null;
+  if (!t) { // a little aim help: the enemy closest to the crosshair
+    const fwd = camera.getWorldDirection(new THREE.Vector3());
+    let best = 0.08;
+    for (const u of foes) {
+      const a = posOf(u).add(new THREE.Vector3(0, 0.25, 0)).sub(camera.position).angleTo(fwd);
+      if (a < best && dist(me, u) <= reach(me) && sees(me, u)) { best = a; t = u; }
+    }
+  }
+  fire(t);
 }
 
 // --- camera, input, loop ------------------------------------------------------
 const controls = new OrbitControls(camera, cv);
 controls.enableDamping = true;
 controls.screenSpacePanning = false;
-controls.maxPolarAngle = 1.3;
-controls.minDistance = 5;
+controls.maxPolarAngle = 1.42;
+controls.minDistance = 2;
 controls.maxDistance = 60;
 controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
 controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
@@ -687,41 +848,139 @@ function resize() {
 }
 new ResizeObserver(resize).observe(wrap);
 
-const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-let down = null;
-cv.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
-cv.addEventListener('pointerup', e => {
-  if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > TAP_PX || performance.now() - down.t > TAP_MS) return;
-  down = null;
-  const r = cv.getBoundingClientRect();
-  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-  ray.setFromCamera(ndc, camera);
-  const hit = ray.intersectObjects([...groups.values(), ...pickables], true)[0];
-  if (!hit) return;
-  const u = hit.object.userData.unit;
-  if (u) onTap(u.x, u.y);
-  else onTap(hit.object.userData.x, hit.object.userData.y);
+const locked = () => document.pointerLockElement === cv;
+addEventListener('mousemove', e => { if (locked()) look(e.movementX, e.movementY); });
+cv.addEventListener('mousedown', e => {
+  if (!locked()) return;
+  if (e.button === 0) shootNow();
+  if (e.button === 2 && me) me.guard = true; // right button: parry
 });
+addEventListener('mouseup', e => { if (e.button === 2 && me) me.guard = false; });
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('wheel', e => { if (inFps && !paused()) { e.preventDefault(); cycleWeapon(Math.sign(e.deltaY)); } }, { passive: false });
 
-renderer.setAnimationLoop(now => {
-  for (const g of groups.values()) {
-    const a = g.userData.anim;
-    if (!a) continue;
-    const t = Math.min(1, (now - a.t0) / MOVE_MS);
-    g.position.lerpVectors(a.from, a.to, t);
-    g.position.y += Math.sin(Math.PI * t) * HOP;
-    if (t === 1) g.userData.anim = null;
+// Without pointer lock (touch, or before the first click): drag looks, the left side of a touch screen is a joystick.
+const drags = new Map();
+let stick = null;
+cv.addEventListener('pointerdown', e => {
+  if (!inFps || locked()) return;
+  const r = cv.getBoundingClientRect();
+  if (e.pointerType === 'touch' && e.clientX - r.left < r.width * 0.4) stick = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0 };
+  else drags.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t: performance.now() });
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e => {
+  if (stick && stick.id === e.pointerId) {
+    stick.dx = THREE.MathUtils.clamp((e.clientX - stick.x0) / STICK_PX, -1, 1);
+    stick.dy = THREE.MathUtils.clamp((e.clientY - stick.y0) / STICK_PX, -1, 1);
   }
+  const d = drags.get(e.pointerId);
+  if (d) { look((e.clientX - d.x) * 1.5, (e.clientY - d.y) * 1.5); d.x = e.clientX; d.y = e.clientY; }
+});
+const release = e => {
+  if (stick && stick.id === e.pointerId) stick = null;
+  const d = drags.get(e.pointerId);
+  drags.delete(e.pointerId);
+  if (!d || e.type !== 'pointerup' || Math.hypot(e.clientX - d.x0, e.clientY - d.y0) > TAP_PX || performance.now() - d.t > TAP_MS) return;
+  if (e.pointerType === 'touch') shootNow(); else cv.requestPointerLock?.(); // a click takes the mouse
+};
+cv.addEventListener('pointerup', release);
+cv.addEventListener('pointercancel', release);
+
+const KEYS = { w: [0, 1], arrowup: [0, 1], s: [0, -1], arrowdown: [0, -1], a: [-1, 0], arrowleft: [-1, 0], d: [1, 0], arrowright: [1, 0] };
+const held = new Set();
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (!inFps || paused() || e.metaKey || e.ctrlKey) return;
+  if (KEYS[k]) { e.preventDefault(); held.add(k); }
+  if (k === ' ') { e.preventDefault(); if (!jumpY) jumpV = JUMP_V; }
+});
+addEventListener('keyup', e => held.delete(e.key.toLowerCase()));
+addEventListener('blur', () => { held.clear(); if (me) me.guard = false; });
+
+// Walking direction on the map from the keys (or the touch stick), relative to where I look.
+function moveMe(dt) {
+  let f = 0, r = 0;
+  for (const k of held) { f += KEYS[k][1]; r += KEYS[k][0]; }
+  if (stick) { f -= stick.dy; r += stick.dx; }
+  const n = Math.hypot(f, r);
+  if (n < 0.2) return;
+  f /= Math.max(1, n); r /= Math.max(1, n);
+  const s = Math.sin(yaw), c = Math.cos(yaw);
+  const dx = -s * f + c * r, dy = -c * f - s * r, m = Math.hypot(dx, dy);
+  walkMe(dx / m * Math.min(1, n), dy / m * Math.min(1, n), dt);
+}
+
+// Minimap (top right, first person only): streets and blocks, the objective ⚑, my squad (bright) and other allies, enemies in sight, the ⚐ spot I sent them to, and me as ▲.
+const mini = document.getElementById('mini'), mg = mini.getContext('2d'), MINI = 8; // px per tile
+mini.width = COLS * MINI; mini.height = ROWS * MINI;
+const MINI_COLORS = { calle: '#3a3a3a', manzana: '#6b5a44', rio: '#1c3550' };
+let miniT = 0;
+function drawMini(now) {
+  if (now - miniT < 100) return;
+  miniT = now;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const t = grid[y][x];
+    mg.fillStyle = MINI_COLORS[t] || TERRAIN[t].color;
+    mg.fillRect(x * MINI, y * MINI, MINI, MINI);
+  }
+  mg.fillStyle = '#ffd54a'; mg.font = 'bold 11px system-ui'; mg.textAlign = 'center'; mg.textBaseline = 'middle';
+  for (const o of objective()) mg.fillText('⚑', (o.x + 0.5) * MINI, (o.y + 0.5) * MINI);
+  mg.fillStyle = '#8a6d48';
+  for (const [x, y] of walls) mg.fillRect(x * MINI + 1, y * MINI + 3, MINI - 2, 2);
+  for (const u of units) {
+    if (u === me) continue;
+    const foe = enemy(me, u);
+    if (foe && !(dist(me, u) < SIGHT && sees(me, u)) && !units.some(o => !enemy(me, o) && o !== me && dist(o, u) < 4 && sees(o, u))) continue; // fog: enemies my side sees
+    mg.fillStyle = foe ? '#ff4a3a' : u.squad ? '#7fd0ff' : '#3f6f8f'; // my squad bright, other allies dim
+    mg.beginPath(); mg.arc((u.x + 0.5) * MINI, (u.y + 0.5) * MINI, u.hero ? 3.2 : 2.2, 0, 7); mg.fill();
+  }
+  if (order === 'ir' && dest) { mg.fillStyle = '#fff'; mg.fillText('⚐', (dest.x + 0.5) * MINI, (dest.y + 0.5) * MINI); }
+  const cx = (me.x + 0.5) * MINI, cy = (me.y + 0.5) * MINI, a = Math.atan2(-Math.cos(yaw), -Math.sin(yaw)); // facing on the map (dx, dy) = (−sin, −cos)
+  mg.save(); mg.translate(cx, cy); mg.rotate(a);
+  mg.fillStyle = '#fff'; mg.strokeStyle = '#000'; mg.lineWidth = 1.5;
+  mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-2, 0); mg.lineTo(-4, -4); mg.closePath(); mg.stroke(); mg.fill();
+  mg.restore();
+}
+
+let lastT = 0;
+renderer.setAnimationLoop(now => {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  if (fps() && !inFps) enterFps();
+  if (!fps() && inFps) leaveFps();
+  if (inFps) {
+    me.moving = false;
+    me.look = Math.atan2(-Math.sin(yaw), -Math.cos(yaw)); // where I face, as a unit's dir
+    if (jumpV || jumpY) { jumpY = Math.max(0, jumpY + jumpV * dt); jumpV = jumpY ? jumpV - GRAVITY * dt : 0; }
+    me.air = jumpY > 0.05;
+    moveMe(dt);
+    tick(dt);
+  }
+  for (const e of effects.splice(0)) (e.from ? pour : shotFx)(e);
+  syncUnits(now);
+  syncCrates();
+  if (inFps) {
+    const p = posOf(me);
+    eyeY += (p.y + EYE - eyeY) * 0.2;
+    camera.position.set(p.x, eyeY + jumpY + (me.moving && !jumpY ? Math.abs(Math.sin(now / 110)) * BOB : 0), p.z);
+    camera.rotation.set(pitch, yaw, 0);
+    syncHand(now);
+    drawMini(now);
+    document.getElementById('hurt').style.opacity = me.hitT > 0 ? me.hitT / 0.3 : 0;
+  }
+  hand.visible = inFps;
   for (let i = dying.length - 1; i >= 0; i--) {
     const { g, t0 } = dying[i], t = Math.min(1, (now - t0) / DEATH_MS);
-    g.scale.setScalar(1 - t);
+    g.scale.setScalar((1 - t) * UNIT_SCALE);
     if (t === 1) { scene.remove(g); dying.splice(i, 1); }
   }
-  const s = sel && groups.get(sel);
-  ring.visible = !!s;
-  if (s) ring.position.set(s.position.x, s.position.y + 0.06, s.position.z);
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const f = fx[i], t = Math.min(1, (now - f.t0) / f.ms);
+    f.objs.forEach((o, j) => { o.material.opacity = f.op[j] * (1 - t); if (f.grow) o.scale.setScalar(1 + f.grow * t); });
+    if (t === 1) { scene.remove(...f.objs); f.objs.forEach(o => { o.geometry !== smokeGeo && o.geometry.dispose(); o.material.dispose(); }); fx.splice(i, 1); }
+  }
   water.material.uniforms.time.value = now / 1800;
-  controls.update();
+  if (!inFps) controls.update();
   renderer.render(scene, camera);
 });
 
