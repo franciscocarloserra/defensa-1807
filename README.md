@@ -4,6 +4,8 @@ Prototipo de juego de estrategia por turnos ambientado en la Defensa de Buenos A
 
 Jugar: https://franciscocarloserra.github.io/defensa-1807/
 
+<img width="1366" height="1329" alt="Screenshot_20261020_113241" src="https://github.com/user-attachments/assets/36e377c9-bcd3-4042-906e-0fa36a1f896a" />
+
 Local (con log de errores del front en `/tmp/defensa1807-console.jsonl`):
 
     python3 tools/serve.py 7807
